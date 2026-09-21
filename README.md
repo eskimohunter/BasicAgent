@@ -186,6 +186,18 @@ Unless `--no-log` is passed, each session writes
 - Tool output sent to the model is truncated to protect the context window; the
   truncation marker is explicit.
 
+## Dependency updates
+
+Dependabot (`.github/dependabot.yml`) checks weekly for updates to:
+
+- **pip** — `requirements.txt` (version and security updates)
+- **nix** — `flake.lock` inputs (version updates only; Dependabot does not
+  support security updates for the Nix ecosystem)
+- **github-actions** — workflow actions, once workflows exist
+
+Dependabot *security* updates and alerts for pip/GitHub Actions are enabled in
+repository settings (Settings → Code security), not in this file.
+
 ## Troubleshooting
 
 - **The model never calls tools** — your server/model must support native OpenAI
@@ -204,4 +216,5 @@ flake.nix         nix develop environment (Python + prompt-toolkit + ruff)
 flake.lock        pinned nixpkgs
 requirements.txt  runtime dependencies for pip (Windows / non-Nix)
 ARCHITECTURE.md   internal design and data flow
+.github/          Dependabot configuration
 ```
