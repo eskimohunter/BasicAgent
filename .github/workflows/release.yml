@@ -1,0 +1,144 @@
+name: Release (Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PBS_RELEASE: "20260924"
+  PYTHON_VERSION: "3.13.15"
+  PBS_TRIPLE: "x86_64-pc-windows-msvc"
+  PBS_FLAVOR: "install_only_stripped"
+
+jobs:
+  windows:
+    name: Build Windows bundle
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve and validate version
+        run: |
+          $match = Select-String -Path agent.py -Pattern '^VERSION = "([^"]+)"$'
+          if (-not $match) { throw "Could not find VERSION in agent.py" }
+          $declared = $match.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ($version -ne $declared) {
+              throw "Tag $env:GITHUB_REF_NAME does not match agent.py VERSION $declared"
+            }
+          } else {
+            $version = $declared
+          }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Packaging BasicAgent $version (release: $($env:GITHUB_REF_TYPE -eq 'tag'))"
+
+      - name: Download python-build-standalone
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $asset = "cpython-$env:PYTHON_VERSION+$env:PBS_RELEASE-$env:PBS_TRIPLE-$env:PBS_FLAVOR.tar.gz"
+          $base = "https://github.com/astral-sh/python-build-standalone/releases/download/$env:PBS_RELEASE"
+          Invoke-WebRequest -Uri "$base/$asset" -OutFile $asset
+          Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile SHA256SUMS
+          "PBS_ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify SHA-256 checksum
+        run: |
+          $line = Select-String -Path SHA256SUMS -Pattern ([regex]::Escape($env:PBS_ASSET)) | Select-Object -First 1
+          if (-not $line) { throw "No checksum entry for $env:PBS_ASSET" }
+          $expected = ($line.Line -split '\s+')[0].ToUpper()
+          $actual = (Get-FileHash -Path $env:PBS_ASSET -Algorithm SHA256).Hash
+          if ($actual -ne $expected) {
+            throw "Checksum mismatch for $env:PBS_ASSET (expected $expected, got $actual)"
+          }
+          Write-Host "Checksum OK: $actual"
+
+      - name: Extract and install dependencies
+        run: |
+          New-Item -ItemType Directory -Path pkg | Out-Null
+          tar -xzf $env:PBS_ASSET -C pkg
+          .\pkg\python\python.exe -m pip install --disable-pip-version-check --no-warn-script-location -r requirements.txt
+          .\pkg\python\python.exe -m pip check
+
+      - name: Assemble package
+        run: |
+          Copy-Item agent.py, README.md, basicagent.cmd pkg\
+
+      - name: Smoke test bundled agent
+        run: |
+          .\pkg\python\python.exe -c "import prompt_toolkit; print('prompt-toolkit', prompt_toolkit.__version__)"
+          $versionOutput = .\pkg\python\python.exe .\pkg\agent.py --version
+          if ($versionOutput -notmatch [regex]::Escape($env:VERSION)) {
+            throw "Unexpected --version output: $versionOutput"
+          }
+          .\pkg\python\python.exe .\pkg\agent.py --help | Out-Null
+          $launcherOutput = cmd /c ".\pkg\basicagent.cmd --version"
+          if ($LASTEXITCODE -ne 0 -or $launcherOutput -notmatch [regex]::Escape($env:VERSION)) {
+            throw "basicagent.cmd failed (exit $LASTEXITCODE): $launcherOutput"
+          }
+          Write-Host "Smoke test OK: $versionOutput / launcher: $launcherOutput"
+
+      - name: Create zip archive
+        run: |
+          $zip = "BasicAgent-$env:VERSION-windows-x86_64.zip"
+          $sevenZip = if (Get-Command 7z -ErrorAction SilentlyContinue) {
+            "7z"
+          } else {
+            Join-Path ${env:ProgramFiles} "7-Zip\7z.exe"
+          }
+          Push-Location pkg
+          try {
+            & $sevenZip a -tzip "..\$zip" * | Out-Null
+          } finally {
+            Pop-Location
+          }
+          "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Get-Item $zip).FullName)
+          try { $entries = $archive.Entries.FullName -replace '\\', '/' } finally { $archive.Dispose() }
+          foreach ($required in @('agent.py', 'basicagent.cmd', 'README.md', 'python/python.exe')) {
+            if ($entries -notcontains $required) { throw "zip is missing $required" }
+          }
+          Get-Item $zip | Select-Object Name, Length
+
+      - name: Create SHA-256 checksum
+        run: |
+          $hash = (Get-FileHash -Path $env:ZIP -Algorithm SHA256).Hash.ToLower()
+          "$hash  $env:ZIP" | Set-Content -Path "$($env:ZIP).sha256" -Encoding ascii
+          Get-Content "$($env:ZIP).sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: BasicAgent-${{ env.VERSION }}-windows-x86_64
+          path: |
+            BasicAgent-${{ env.VERSION }}-windows-x86_64.zip
+            BasicAgent-${{ env.VERSION }}-windows-x86_64.zip.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @($env:ZIP, "$($env:ZIP).sha256")
+          gh release view $env:GITHUB_REF_NAME 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME @assets --clobber
+          } else {
+            $extra = @()
+            if ($env:GITHUB_REF_NAME -match '-') { $extra += '--prerelease' }
+            gh release create $env:GITHUB_REF_NAME @assets --title "BasicAgent $env:GITHUB_REF_NAME" --generate-notes @extra
+          }

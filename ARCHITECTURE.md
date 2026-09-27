@@ -375,11 +375,12 @@ in `/tmp/opencode`:
   verify `Tab` toggles PLAN↔BUILD, the system prompt updates, mode changes are
   logged, and `Ctrl+D` exits.
 
-Static checks, both provided by the dev shell:
+Static checks (the first two are provided by the dev shell):
 
 ```sh
 nix develop -c python -m py_compile agent.py
 nix develop -c ruff check agent.py
+nix run nixpkgs#actionlint -- .github/workflows/release.yml
 ```
 
 To test manually, point the agent at a LAN endpoint or run the mock server and
@@ -410,4 +411,51 @@ use `--base-url http://127.0.0.1:<port>/v1`.
   for trusted LANs).
 - The approval gate is specific to `run_command`; other tools that might deserve
   approval (e.g. `write_file`) are gated only by mode.
-- No Windows CI; cross-platform behavior relies on stdlib and `prompt_toolkit`.
+- No committed automated test suite; the release workflow smoke-tests the
+  bundled agent (`import prompt_toolkit`, `--version`, `--help`) but does not
+  exercise the TUI or the agent loop.
+
+## 16. Packaging and release
+
+The Windows release pipeline is `.github/workflows/release.yml`, triggered by
+`v*` tag pushes (publishes a GitHub Release) or manual dispatch (workflow
+artifact only). There is no separate local packaging step.
+
+```
+tag vX.Y.Z ──► validate tag == VERSION in agent.py
+           ──► download python-build-standalone 20260924
+               (cpython-3.13.15 x86_64-pc-windows-msvc install_only_stripped)
+           ──► verify SHA-256 against the release's SHA256SUMS asset
+           ──► extract (python/) ──► python -m pip install -r requirements.txt
+           ──► copy agent.py, README.md, basicagent.cmd
+           ──► smoke test: import prompt-toolkit, agent --version/--help,
+               basicagent.cmd --version
+           ──► 7z zip (contents at zip root) + root-entry assertions
+           ──► SHA-256 file ──► upload artifact ──► gh release create
+```
+
+Design notes:
+
+- **Tag is the version authority.** `VERSION` in `agent.py` is the single source
+  of truth; the build fails on a mismatch rather than rewriting source in CI.
+- **Supply-chain check.** The interpreter archive is verified against the
+  checksum published by python-build-standalone, and the resulting zip gets its
+  own `.sha256` asset (`<hash>  <filename>`).
+- **No `pip.exe`.** Standalone Windows builds ship pip without script shims, so
+  the workflow and `basicagent.cmd` always invoke `python\python.exe` directly
+  (`-m pip`, `agent.py`).
+- **The smoke test runs the assembled package** with the bundled interpreter
+  (`agent.py --version/--help`) and through the `basicagent.cmd` launcher, and
+  the zip's root entries are asserted after archiving.
+- **A tag push is the only path that publishes.** The release step is gated on
+  `github.event_name == 'push' && github.ref_type == 'tag'`; manual dispatch runs
+  build and upload the workflow artifact only, even when dispatched against a
+  tag ref.
+- **`install_only_stripped`** halves the download (21 MiB vs 45 MiB) with no
+  functional difference.
+- **Pins are explicit** in the workflow `env` and bumped deliberately;
+  Dependabot manages actions, `requirements.txt` and `flake.lock` but not these
+  values.
+- **Bundle layout** — `agent.py`, `basicagent.cmd`, `README.md` and `python/`
+  (interpreter + site-packages) at the zip root; users run `basicagent.cmd`.
+

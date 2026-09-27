@@ -58,6 +58,28 @@ py agent.py --base-url http://192.168.1.10:8080/v1 --model qwen2.5-coder
 
 Use Windows Terminal for the best rendering.
 
+### Prebuilt Windows release
+
+Every `v*` tag publishes a self-contained Windows x64 bundle on the
+[Releases page](https://github.com/eskimohunter/BasicAgent/releases). It includes
+a stripped CPython 3.13 from
+[python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+and `prompt-toolkit`; nothing needs to be installed.
+
+1. Download `BasicAgent-<version>-windows-x86_64.zip`.
+2. Verify it against the published `.sha256` file (optional but recommended):
+
+   ```powershell
+   $hash = (Get-FileHash .\BasicAgent-<version>-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+   $expected = ((Get-Content .\BasicAgent-<version>-windows-x86_64.zip.sha256) -split '\s+')[0]
+   $hash -eq $expected
+   ```
+3. Extract anywhere and run `basicagent.cmd`, or call the interpreter directly:
+   `python\python.exe agent.py --base-url http://192.168.1.10:8080/v1 --model qwen2.5-coder`
+
+The bundle is not code-signed, so Windows SmartScreen may warn on first launch.
+Python itself is distributed under the PSF license (`python\LICENSE.txt`).
+
 ## Usage
 
 ```sh
@@ -193,10 +215,36 @@ Dependabot (`.github/dependabot.yml`) checks weekly for updates to:
 - **pip** — `requirements.txt` (version and security updates)
 - **nix** — `flake.lock` inputs (version updates only; Dependabot does not
   support security updates for the Nix ecosystem)
-- **github-actions** — workflow actions, once workflows exist
+- **github-actions** — workflow actions
 
 Dependabot *security* updates and alerts for pip/GitHub Actions are enabled in
 repository settings (Settings → Code security), not in this file.
+
+## Releasing (Windows)
+
+The `Release (Windows)` workflow
+(`.github/workflows/release.yml`) builds a self-contained zip:
+
+1. Bump `VERSION` in `agent.py`, commit, and push.
+2. Tag and push:
+
+   ```sh
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The workflow then validates that the tag matches `VERSION`, downloads the pinned
+python-build-standalone archive, verifies its published SHA-256 checksum, installs
+`requirements.txt`, smoke-tests the bundled agent, zips everything with
+`basicagent.cmd`, and publishes a GitHub Release with the zip and a `.sha256`
+file. Tags containing a hyphen (e.g. `v0.2.0-rc1`) are marked as pre-releases.
+
+For a dry run without releasing, trigger the workflow manually (Actions → Release
+(Windows) → Run workflow); it uploads the zip as a workflow artifact only.
+
+The bundled interpreter is pinned in the workflow's `env` (`PBS_RELEASE`,
+`PYTHON_VERSION`). Dependabot updates the actions, `requirements.txt` and
+`flake.lock`, but not these values — bump them deliberately.
 
 ## Troubleshooting
 
@@ -211,10 +259,13 @@ repository settings (Settings → Code security), not in this file.
 ## Project layout
 
 ```
-agent.py          the entire agent
-flake.nix         nix develop environment (Python + prompt-toolkit + ruff)
-flake.lock        pinned nixpkgs
-requirements.txt  runtime dependencies for pip (Windows / non-Nix)
-ARCHITECTURE.md   internal design and data flow
-.github/          Dependabot configuration
+agent.py                        the entire agent
+basicagent.cmd                  Windows launcher for prebuilt bundles
+.gitattributes                  ensures .cmd files use CRLF on checkout
+flake.nix                       nix develop environment (Python + prompt-toolkit + ruff)
+flake.lock                      pinned nixpkgs
+requirements.txt                runtime dependencies for pip (Windows / non-Nix)
+ARCHITECTURE.md                 internal design and data flow
+.github/dependabot.yml          dependency update configuration
+.github/workflows/release.yml   Windows release pipeline
 ```
