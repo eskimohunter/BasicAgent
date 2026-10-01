@@ -9,5 +9,5 @@
 - [ ] Read Agents.md
 - [x] BA.png to README
 - [ ] Look at Opencode base prompt + plan/build mode
-- [ ] Logs in application directory not project
+- [x] Logs in application directory not project
 - [ ] Refused to read ‘binary file’ .xml

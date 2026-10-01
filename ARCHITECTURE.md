@@ -314,9 +314,11 @@ bindings, so `Tab` cannot accidentally change mode mid-turn.
 
 ## 10. Audit log
 
-`AuditLog` (`agent.py:162`) opens `logs/YYYYMMDD-HHMMSS-<pid>.jsonl` (UTC) at
-startup, appends one JSON object per event, and flushes after every write. If
-logging is disabled (`--no-log`), all methods are no-ops.
+`AuditLog` (`agent.py:170`) opens `<app dir>/logs/YYYYMMDD-HHMMSS-<pid>.jsonl`
+(UTC) at startup, appends one JSON object per event, and flushes after every
+write. If logging is disabled (`--no-log`), all methods are no-ops; if the
+default app-directory location is not writable, a warning is printed and the
+session continues without logging.
 
 Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 

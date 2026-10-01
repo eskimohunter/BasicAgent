@@ -183,7 +183,7 @@ Precedence: CLI argument > environment variable > default.
 | `--command-timeout` | — | `60` | Default shell timeout (seconds, clamped 1–600) |
 | `--max-steps` | — | `25` | Max tool rounds per user turn |
 | `--workspace` | — | current directory | Workspace root for tools and shell |
-| `--log-dir` | — | `logs` | Audit log directory |
+| `--log-dir` | — | `<app dir>/logs` | Audit log directory |
 | `--no-log` | — | off | Disable audit logging |
 | `--allow-outside` | — | off | Allow file tools outside the workspace |
 | `--system-prompt` | — | built-in | Replace the base system prompt |
@@ -191,7 +191,8 @@ Precedence: CLI argument > environment variable > default.
 ## Audit log
 
 Unless `--no-log` is passed, each session writes
-`logs/YYYYMMDD-HHMMSS-<pid>.jsonl` (UTC timestamp). One JSON object per line:
+`<app dir>/logs/YYYYMMDD-HHMMSS-<pid>.jsonl` (UTC timestamp) next to `agent.py`,
+regardless of the terminal's working directory. One JSON object per line:
 
 | Event | Contents |
 | --- | --- |

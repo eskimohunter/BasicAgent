@@ -33,6 +33,8 @@ from prompt_toolkit.styles import Style
 
 APP_NAME = "BA"
 VERSION = "0.1.0"
+APP_DIR = Path(__file__).resolve().parent
+DEFAULT_LOG_DIR = APP_DIR / "logs"
 DEFAULT_BASE_URL = "http://localhost:8080/v1"
 TOOL_RESULT_LIMIT = 64_000
 DISPLAY_PREVIEW_LIMIT = 2_000
@@ -90,7 +92,7 @@ class Config:
     command_timeout: int = 60
     max_steps: int = 25
     workspace: Path = field(default_factory=Path.cwd)
-    log_dir: Path = field(default_factory=lambda: Path("logs"))
+    log_dir: Path = field(default_factory=lambda: DEFAULT_LOG_DIR)
     log_enabled: bool = True
     allow_outside: bool = False
     system_prompt: str | None = None
@@ -134,7 +136,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--max-steps", type=int, default=25, help="Maximum tool rounds per user turn"
     )
     parser.add_argument("--workspace", default=".", help="Workspace root directory")
-    parser.add_argument("--log-dir", default="logs", help="Directory for JSONL audit logs")
+    parser.add_argument(
+        "--log-dir",
+        default=str(DEFAULT_LOG_DIR),
+        help="Directory for JSONL audit logs (default: <app dir>/logs)",
+    )
     parser.add_argument("--no-log", action="store_true", help="Disable audit logging")
     parser.add_argument(
         "--allow-outside",
@@ -168,10 +174,18 @@ class AuditLog:
         self.path: Path | None = None
         self._fh: Any = None
         if config.log_enabled:
-            config.log_dir.mkdir(parents=True, exist_ok=True)
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            self.path = config.log_dir / f"{stamp}-{os.getpid()}.jsonl"
-            self._fh = self.path.open("a", encoding="utf-8")
+            try:
+                config.log_dir.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+                self.path = config.log_dir / f"{stamp}-{os.getpid()}.jsonl"
+                self._fh = self.path.open("a", encoding="utf-8")
+            except OSError as exc:
+                say(
+                    f"warning: cannot write audit log to {config.log_dir}: {exc}",
+                    "class:warn",
+                )
+                self.path = None
+                self._fh = None
 
     def log(self, event: str, **fields: Any) -> None:
         if self._fh is None:
