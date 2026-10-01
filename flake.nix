@@ -1,5 +1,5 @@
 {
-  description = "BasicAgent development shell";
+  description = "BA development shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

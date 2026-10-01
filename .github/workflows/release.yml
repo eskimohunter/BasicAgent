@@ -44,7 +44,7 @@ jobs:
             $version = $declared
           }
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Packaging BasicAgent $version (release: $($env:GITHUB_REF_TYPE -eq 'tag'))"
+          Write-Host "Packaging BA $version (release: $($env:GITHUB_REF_TYPE -eq 'tag'))"
 
       - name: Download python-build-standalone
         run: |
@@ -75,7 +75,7 @@ jobs:
 
       - name: Assemble package
         run: |
-          Copy-Item agent.py, README.md, basicagent.cmd pkg\
+          Copy-Item agent.py, README.md, ba.cmd pkg\
 
       - name: Smoke test bundled agent
         run: |
@@ -85,15 +85,15 @@ jobs:
             throw "Unexpected --version output: $versionOutput"
           }
           .\pkg\python\python.exe .\pkg\agent.py --help | Out-Null
-          $launcherOutput = cmd /c ".\pkg\basicagent.cmd --version"
+          $launcherOutput = cmd /c ".\pkg\ba.cmd --version"
           if ($LASTEXITCODE -ne 0 -or $launcherOutput -notmatch [regex]::Escape($env:VERSION)) {
-            throw "basicagent.cmd failed (exit $LASTEXITCODE): $launcherOutput"
+            throw "ba.cmd failed (exit $LASTEXITCODE): $launcherOutput"
           }
           Write-Host "Smoke test OK: $versionOutput / launcher: $launcherOutput"
 
       - name: Create zip archive
         run: |
-          $zip = "BasicAgent-$env:VERSION-windows-x86_64.zip"
+          $zip = "BA-$env:VERSION-windows-x86_64.zip"
           $sevenZip = if (Get-Command 7z -ErrorAction SilentlyContinue) {
             "7z"
           } else {
@@ -108,7 +108,7 @@ jobs:
           "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $archive = [System.IO.Compression.ZipFile]::OpenRead((Get-Item $zip).FullName)
           try { $entries = $archive.Entries.FullName -replace '\\', '/' } finally { $archive.Dispose() }
-          foreach ($required in @('agent.py', 'basicagent.cmd', 'README.md', 'python/python.exe')) {
+          foreach ($required in @('agent.py', 'ba.cmd', 'README.md', 'python/python.exe')) {
             if ($entries -notcontains $required) { throw "zip is missing $required" }
           }
           Get-Item $zip | Select-Object Name, Length
@@ -122,10 +122,10 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: BasicAgent-${{ env.VERSION }}-windows-x86_64
+          name: BA-${{ env.VERSION }}-windows-x86_64
           path: |
-            BasicAgent-${{ env.VERSION }}-windows-x86_64.zip
-            BasicAgent-${{ env.VERSION }}-windows-x86_64.zip.sha256
+            BA-${{ env.VERSION }}-windows-x86_64.zip
+            BA-${{ env.VERSION }}-windows-x86_64.zip.sha256
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -140,5 +140,5 @@ jobs:
           } else {
             $extra = @()
             if ($env:GITHUB_REF_NAME -match '-') { $extra += '--prerelease' }
-            gh release create $env:GITHUB_REF_NAME @assets --title "BasicAgent $env:GITHUB_REF_NAME" --generate-notes @extra
+            gh release create $env:GITHUB_REF_NAME @assets --title "BA $env:GITHUB_REF_NAME" --generate-notes @extra
           }

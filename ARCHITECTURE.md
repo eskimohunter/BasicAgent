@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the internal design of BasicAgent: its components, the
+This document describes the internal design of BA: its components, the
 data flow of a turn, and the reasoning behind the main decisions. It is intended
 for anyone auditing or extending `agent.py`.
 
@@ -427,9 +427,9 @@ tag vX.Y.Z ──► validate tag == VERSION in agent.py
                (cpython-3.13.15 x86_64-pc-windows-msvc install_only_stripped)
            ──► verify SHA-256 against the release's SHA256SUMS asset
            ──► extract (python/) ──► python -m pip install -r requirements.txt
-           ──► copy agent.py, README.md, basicagent.cmd
+           ──► copy agent.py, README.md, ba.cmd
            ──► smoke test: import prompt-toolkit, agent --version/--help,
-               basicagent.cmd --version
+               ba.cmd --version
            ──► 7z zip (contents at zip root) + root-entry assertions
            ──► SHA-256 file ──► upload artifact ──► gh release create
 ```
@@ -442,10 +442,10 @@ Design notes:
   checksum published by python-build-standalone, and the resulting zip gets its
   own `.sha256` asset (`<hash>  <filename>`).
 - **No `pip.exe`.** Standalone Windows builds ship pip without script shims, so
-  the workflow and `basicagent.cmd` always invoke `python\python.exe` directly
+  the workflow and `ba.cmd` always invoke `python\python.exe` directly
   (`-m pip`, `agent.py`).
 - **The smoke test runs the assembled package** with the bundled interpreter
-  (`agent.py --version/--help`) and through the `basicagent.cmd` launcher, and
+  (`agent.py --version/--help`) and through the `ba.cmd` launcher, and
   the zip's root entries are asserted after archiving.
 - **A tag push is the only path that publishes.** The release step is gated on
   `github.event_name == 'push' && github.ref_type == 'tag'`; manual dispatch runs
@@ -456,6 +456,6 @@ Design notes:
 - **Pins are explicit** in the workflow `env` and bumped deliberately;
   Dependabot manages actions, `requirements.txt` and `flake.lock` but not these
   values.
-- **Bundle layout** — `agent.py`, `basicagent.cmd`, `README.md` and `python/`
-  (interpreter + site-packages) at the zip root; users run `basicagent.cmd`.
+- **Bundle layout** — `agent.py`, `ba.cmd`, `README.md` and `python/`
+  (interpreter + site-packages) at the zip root; users run `ba.cmd`.
 

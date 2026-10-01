@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BasicAgent: a small, auditable, single-file LLM coding agent with a cross-platform TUI.
+"""BA: a small, auditable, single-file LLM coding agent with a cross-platform TUI.
 
 The agent talks to any OpenAI-compatible chat completions endpoint (streaming),
 exposes a fixed set of tools, and requires explicit user approval before running
@@ -29,7 +29,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
-APP_NAME = "BasicAgent"
+APP_NAME = "BA"
 VERSION = "0.1.0"
 DEFAULT_BASE_URL = "http://localhost:8080/v1"
 TOOL_RESULT_LIMIT = 64_000

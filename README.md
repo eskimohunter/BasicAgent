@@ -1,7 +1,7 @@
-# BasicAgent
+# BasicAgent (BA)
 
 <p align="center">
-  <img src="media/BA.png" alt="BasicAgent" width="600">
+  <img src="media/BA.png" alt="BA" width="600">
 </p>
 
 A basic LLM coding agent built for **understandability and auditability**. It is a
@@ -14,7 +14,7 @@ every shell command** it wants to run.
 | PLAN | qwen2.5-coder  /home/you/project  Tab:mode  /help     |
 +-------------------------------------------------------------+
 you> explain the build setup
-BasicAgent [plan]> This project uses a Nix flake...
+BA [plan]> This project uses a Nix flake...
 ```
 
 ## Features
@@ -70,15 +70,15 @@ a stripped CPython 3.13 from
 [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 and `prompt-toolkit`; nothing needs to be installed.
 
-1. Download `BasicAgent-<version>-windows-x86_64.zip`.
+1. Download `BA-<version>-windows-x86_64.zip`.
 2. Verify it against the published `.sha256` file (optional but recommended):
 
    ```powershell
-   $hash = (Get-FileHash .\BasicAgent-<version>-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
-   $expected = ((Get-Content .\BasicAgent-<version>-windows-x86_64.zip.sha256) -split '\s+')[0]
+   $hash = (Get-FileHash .\BA-<version>-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+   $expected = ((Get-Content .\BA-<version>-windows-x86_64.zip.sha256) -split '\s+')[0]
    $hash -eq $expected
    ```
-3. Extract anywhere and run `basicagent.cmd`, or call the interpreter directly:
+3. Extract anywhere and run `ba.cmd`, or call the interpreter directly:
    `python\python.exe agent.py --base-url http://192.168.1.10:8080/v1 --model qwen2.5-coder`
 
 The bundle is not code-signed, so Windows SmartScreen may warn on first launch.
@@ -240,7 +240,7 @@ The `Release (Windows)` workflow
 The workflow then validates that the tag matches `VERSION`, downloads the pinned
 python-build-standalone archive, verifies its published SHA-256 checksum, installs
 `requirements.txt`, smoke-tests the bundled agent, zips everything with
-`basicagent.cmd`, and publishes a GitHub Release with the zip and a `.sha256`
+`ba.cmd`, and publishes a GitHub Release with the zip and a `.sha256`
 file. Tags containing a hyphen (e.g. `v0.2.0-rc1`) are marked as pre-releases.
 
 For a dry run without releasing, trigger the workflow manually (Actions → Release
@@ -264,7 +264,7 @@ The bundled interpreter is pinned in the workflow's `env` (`PBS_RELEASE`,
 
 ```
 agent.py                        the entire agent
-basicagent.cmd                  Windows launcher for prebuilt bundles
+ba.cmd                          Windows launcher for prebuilt bundles
 .gitattributes                  ensures .cmd files use CRLF on checkout
 flake.nix                       nix develop environment (Python + prompt-toolkit + ruff)
 flake.lock                      pinned nixpkgs
