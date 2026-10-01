@@ -43,7 +43,8 @@ and refer to the current revision.
 | `resolve_path` / `is_excluded` | `agent.py:235-258` | Workspace boundary and directory excludes |
 | `tool_*` handlers | `agent.py:261-451` | The seven tools |
 | `build_tools` | `agent.py:454` | Registry: name → `Tool` |
-| `build_system_prompt` | `agent.py:552` | Mode-aware system prompt |
+| `load_project_instructions` | `agent.py:654-681` | Workspace `Agents.md` → system prompt |
+| `build_system_prompt` | `agent.py:684` | Mode-aware system prompt (incl. project instructions) |
 | `Approvals` | `agent.py:586` | Interactive shell-command gate + session allowlist |
 | `StreamResult` | `agent.py:627` | One assistant reply: message dict + interrupted flag |
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |
@@ -76,6 +77,8 @@ class App:
 server each request. The system prompt at `messages[0]` is rebuilt whenever the
 mode changes (`App.toggle_mode`, `agent.py:945`), so mode instructions always
 reflect the current mode. `/clear` resets `messages` to just the system prompt.
+The prompt also embeds workspace project instructions (`Agents.md`, loaded once
+at startup; see §4).
 
 Configuration is immutable after startup. Precedence is CLI > environment >
 default, resolved entirely in `parse_args` (`agent.py:97`). There is no config
@@ -86,7 +89,8 @@ such as `AGENT_BASE_URL`.
 
 `main` (`agent.py:992`):
 
-1. Parse configuration.
+1. Parse configuration and load workspace project instructions (`Agents.md`,
+   any capitalization, capped at 32 KB) into the system prompt.
 2. Open the audit log (unless disabled) and write `session_start` with a
    redacted API key.
 3. Create the `PromptSession` with the shared style sheet, the `App`, and the

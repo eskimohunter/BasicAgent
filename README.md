@@ -33,6 +33,8 @@ BA [plan]> This project uses a Nix flake...
   JSONL file for later review.
 - **Small tool surface** — `read_file`, `list_dir`, `grep`, `fetch_url`,
   `write_file`, `edit_file`, `run_command`.
+- **Project instructions** — an `Agents.md` in the workspace root (any
+  capitalization) is loaded into the system prompt at startup.
 
 ## Requirements
 
@@ -186,7 +188,7 @@ Precedence: CLI argument > environment variable > default.
 | `--log-dir` | — | `<app dir>/logs` | Audit log directory |
 | `--no-log` | — | off | Disable audit logging |
 | `--allow-outside` | — | off | Allow file tools outside the workspace |
-| `--system-prompt` | — | built-in | Replace the base system prompt |
+| `--system-prompt` | — | built-in | Replace the base system prompt (workspace `Agents.md` is still appended) |
 
 ## Audit log
 
@@ -196,7 +198,7 @@ regardless of the terminal's working directory. One JSON object per line:
 
 | Event | Contents |
 | --- | --- |
-| `session_start` | version, base URL, model, workspace, mode, redacted API key |
+| `session_start` | version, base URL, model, workspace, mode, redacted API key, project instructions path/size |
 | `user_message` | user input |
 | `assistant_message` | assistant text and any tool calls |
 | `tool_call` | tool name, full arguments, call id |

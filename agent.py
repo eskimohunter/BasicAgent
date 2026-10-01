@@ -42,6 +42,7 @@ DISPLAY_PREVIEW_LINES = 40
 READ_MAX_LINES = 2_000
 GREP_MAX_FILE_BYTES = 2_000_000
 FETCH_MAX_BYTES = 100_000
+INSTRUCTIONS_MAX_BYTES = 32_000
 DEFAULT_EXCLUDES = {
     ".git",
     "__pycache__",
@@ -96,6 +97,8 @@ class Config:
     log_enabled: bool = True
     allow_outside: bool = False
     system_prompt: str | None = None
+    project_instructions: str | None = None
+    project_instructions_path: Path | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -648,6 +651,36 @@ def build_tools(config: Config) -> dict[str, Tool]:
     return {tool.name: tool for tool in tools}
 
 
+def find_agents_file(workspace: Path) -> Path | None:
+    """Return the first Agents.md in the workspace root, case-insensitively."""
+    try:
+        entries = sorted(workspace.iterdir(), key=lambda entry: entry.name)
+    except OSError:
+        return None
+    for entry in entries:
+        if entry.name.lower() == "agents.md" and entry.is_file():
+            return entry
+    return None
+
+
+def load_project_instructions(config: Config) -> None:
+    """Load workspace Agents.md into the config, warning on unreadable files."""
+    path = find_agents_file(config.workspace)
+    if path is None:
+        return
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        say(f"warning: cannot read {path}: {exc}", "class:warn")
+        return
+    text = decode_text(raw)
+    if text is None:
+        say(f"warning: ignoring binary file {path}", "class:warn")
+        return
+    config.project_instructions = cap(text, INSTRUCTIONS_MAX_BYTES)
+    config.project_instructions_path = path
+
+
 def build_system_prompt(config: Config, mode: Mode) -> str:
     if config.system_prompt:
         base = config.system_prompt
@@ -662,6 +695,11 @@ def build_system_prompt(config: Config, mode: Mode) -> str:
             "never claim a command ran until you see the tool result.\n"
             "- Tool results beginning with 'ERROR:' indicate failure; read them and adjust.\n"
             "- Keep answers concise and grounded in tool output. Do not invent file contents.\n"
+        )
+    if config.project_instructions:
+        base += (
+            f"\n\nProject instructions ({config.project_instructions_path}):\n"
+            f"{config.project_instructions}\n"
         )
     if mode is Mode.PLAN:
         base += (
@@ -1093,12 +1131,14 @@ def print_banner(app: App) -> None:
     say(f"  endpoint:  {app.config.base_url}")
     say(f"  workspace: {app.config.workspace}")
     say(f"  log:       {app.log.path if app.log.path else 'disabled'}")
+    say(f"  agents:    {app.config.project_instructions_path or 'none'}")
     say("  mode:      PLAN (read-only) - press Tab to switch to BUILD")
     say("  /help for commands")
 
 
 def main(argv: list[str] | None = None) -> int:
     config = parse_args(argv)
+    load_project_instructions(config)
     log = AuditLog(config)
     session: PromptSession = PromptSession(style=STYLE)
     app = App(config, log, session)
@@ -1111,6 +1151,12 @@ def main(argv: list[str] | None = None) -> int:
         workspace=str(config.workspace),
         mode=app.mode.value,
         api_key="[redacted]" if config.api_key not in ("", "none") else "[none]",
+        instructions=str(config.project_instructions_path)
+        if config.project_instructions_path
+        else None,
+        instructions_bytes=len(config.project_instructions)
+        if config.project_instructions
+        else 0,
     )
     print_banner(app)
     try:
