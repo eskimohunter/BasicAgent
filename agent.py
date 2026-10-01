@@ -319,6 +319,42 @@ def is_excluded(path: Path, root: Path) -> bool:
     return any(part in DEFAULT_EXCLUDES for part in rel.parts[:-1])
 
 
+TEXT_BOMS = (
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+    (b"\xff\xfe", "utf-16"),
+    (b"\xfe\xff", "utf-16"),
+)
+
+
+def looks_like_utf16(raw: bytes) -> str | None:
+    """Guess a BOM-less UTF-16 byte order from NUL-byte positions."""
+    sample = raw[:8192]
+    if len(sample) < 4:
+        return None
+    even_nul = sample[0::2].count(0) / len(sample[0::2])
+    odd_nul = sample[1::2].count(0) / len(sample[1::2])
+    if odd_nul > 0.3 and even_nul < 0.05:
+        return "utf-16-le"
+    if even_nul > 0.3 and odd_nul < 0.05:
+        return "utf-16-be"
+    return None
+
+
+def decode_text(raw: bytes) -> str | None:
+    """Decode file bytes as text, or return None if they look binary."""
+    for bom, encoding in TEXT_BOMS:
+        if raw.startswith(bom):
+            return raw.decode(encoding, errors="replace")
+    if b"\x00" not in raw[:8192]:
+        return raw.decode("utf-8", errors="replace")
+    encoding = looks_like_utf16(raw)
+    if encoding:
+        return raw.decode(encoding, errors="replace")
+    return None
+
+
 def tool_read_file(
     config: Config, path: str, start_line: int = 1, end_line: int = 0
 ) -> str:
@@ -328,9 +364,9 @@ def tool_read_file(
     if not target.is_file():
         raise ToolError(f"not a file: {target}")
     raw = target.read_bytes()
-    if b"\x00" in raw[:8192]:
+    text = decode_text(raw)
+    if text is None:
         raise ToolError(f"refusing to read binary file: {target}")
-    text = raw.decode("utf-8", errors="replace")
     lines = text.splitlines()
     total = len(lines)
     start = max(1, int(start_line))
@@ -403,9 +439,11 @@ def tool_grep(
             raw = candidate.read_bytes()
         except OSError:
             continue
-        if len(raw) > GREP_MAX_FILE_BYTES or b"\x00" in raw[:4096]:
+        if len(raw) > GREP_MAX_FILE_BYTES:
             continue
-        text = raw.decode("utf-8", errors="replace")
+        text = decode_text(raw)
+        if text is None:
+            continue
         for lineno, line in enumerate(text.splitlines(), start=1):
             if rx.search(line):
                 rel = candidate.relative_to(base) if base.is_dir() else candidate.name
@@ -516,7 +554,7 @@ def build_tools(config: Config) -> dict[str, Tool]:
     tools = [
         Tool(
             "read_file",
-            "Read a UTF-8 text file and return numbered lines. "
+            "Read a text file (UTF-8/16/32) and return numbered lines. "
             "Optionally limit to a line range (end_line=0 means end of file).",
             object_schema(
                 {

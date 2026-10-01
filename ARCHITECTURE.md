@@ -244,9 +244,9 @@ which the system prompt tells the model to interpret as failure.
 
 | Tool | Implementation notes |
 | --- | --- |
-| `read_file` | Binary detection (NUL byte in first 8 KB); UTF-8 with replacement; numbered lines; `READ_MAX_LINES` (2000) cap with an explicit header note |
+| `read_file` | Binary detection (BOM-aware UTF-8/16/32, NUL-parity heuristic for BOM-less UTF-16, NUL fallback); decode with replacement; numbered lines; `READ_MAX_LINES` (2000) cap with an explicit header note |
 | `list_dir` | Directories sorted first; sizes shown for files |
-| `grep` | Pure-Python regex over `Path.rglob`; skips `DEFAULT_EXCLUDES` directories and files > 2 MB; caps at `max_results` (1–1000) |
+| `grep` | Pure-Python regex over `Path.rglob`; skips `DEFAULT_EXCLUDES` directories, files > 2 MB, and binary files (same decoding as `read_file`); caps at `max_results` (1–1000) |
 | `fetch_url` | http(s) only; 100 KB default cap (clamped 1 KB–1 MB); HTTP errors returned as text, connection errors as `ToolError` |
 | `write_file` | Creates parent directories; overwrites |
 | `edit_file` | Exact string match; refuses empty `old_string`; fails on 0 matches or >1 without `replace_all` |

@@ -10,4 +10,4 @@
 - [x] BA.png to README
 - [ ] Look at Opencode base prompt + plan/build mode
 - [x] Logs in application directory not project
-- [ ] Refused to read ‘binary file’ .xml
+- [x] Refused to read ‘binary file’ .xml

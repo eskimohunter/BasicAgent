@@ -156,9 +156,9 @@ directory. There is no hidden wrapping or rewriting.
 
 | Tool | Mode | Description |
 | --- | --- | --- |
-| `read_file(path, start_line?, end_line?)` | both | Numbered lines, max 2000 lines per call, refuses binary files |
+| `read_file(path, start_line?, end_line?)` | both | Numbered lines, max 2000 lines per call; decodes UTF-8/16/32, refuses binary files |
 | `list_dir(path?)` | both | Directory listing; directories get a trailing `/` |
-| `grep(pattern, path?, include?, ignore_case?, max_results?)` | both | Regex search with line numbers, skips `.git`, `node_modules`, `.venv`, caches |
+| `grep(pattern, path?, include?, ignore_case?, max_results?)` | both | Regex search with line numbers, skips `.git`, `node_modules`, `.venv`, caches, binary files |
 | `fetch_url(url, max_bytes?)` | both | HTTP(S) GET, capped at 100 KB by default |
 | `write_file(path, content)` | build | Create/overwrite; creates parent directories |
 | `edit_file(path, old_string, new_string, replace_all?)` | build | Exact-string replacement; fails on ambiguity |
