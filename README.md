@@ -22,6 +22,8 @@ BA [plan]> This project uses a Nix flake...
 - **Single file** — `agent.py` is the whole agent; stdlib HTTP/SSE plus
   `prompt_toolkit` for the TUI.
 - **Streaming** — responses are rendered token-by-token as they arrive.
+- **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
+  model's first output of a turn.
 - **PLAN / BUILD modes** — press `Tab` to toggle. PLAN is read-only and enforced
   structurally (write/run tools are not even offered to the model). BUILD enables
   file edits and shell commands.

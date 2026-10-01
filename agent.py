@@ -14,6 +14,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import threading
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -194,6 +196,51 @@ def say(text: str = "", style: str = "") -> None:
 
 def stream_write(text: str) -> None:
     pt_print(text, end="", flush=True, style=STYLE)
+
+
+SPINNER_FRAMES = "|/-\\"
+SPINNER_INTERVAL = 0.08
+SPINNER_GRACE = 0.15
+
+
+class Spinner:
+    """Animates a glyph on the current line until stopped.
+
+    Assumes the cursor sits at column 0 of a fresh line (the turn banner is
+    printed with a trailing newline). Writes straight to stdout; callers must
+    stop the spinner before printing anything else.
+    """
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+
+    def _spin(self) -> None:
+        if self._stop.wait(SPINNER_GRACE):
+            return
+        index = 0
+        while not self._stop.wait(SPINNER_INTERVAL):
+            frame = SPINNER_FRAMES[index % len(SPINNER_FRAMES)]
+            sys.stdout.write(f"\r{frame} ")
+            sys.stdout.flush()
+            index += 1
+
+    def stop(self) -> None:
+        thread = self._thread
+        if thread is None:
+            return
+        self._stop.set()
+        thread.join()
+        self._thread = None
+        sys.stdout.write("\r  \r")
+        sys.stdout.flush()
 
 
 def cap(text: str, limit: int = TOOL_RESULT_LIMIT) -> str:
@@ -852,12 +899,21 @@ def run_turn(app: App, user_text: str) -> None:
     app.log.log("user_message", content=user_text)
     for _ in range(app.config.max_steps):
         say(f"\n{APP_NAME} [{app.mode.value}]> ", "class:agent")
+        spinner = Spinner()
+
+        def on_delta(text: str, spinner: Spinner = spinner) -> None:
+            spinner.stop()
+            stream_write(text)
+
+        spinner.start()
         try:
-            result = stream_chat(app, stream_write)
+            result = stream_chat(app, on_delta)
         except AgentError as exc:
             say(f"\nERROR: {exc}", "class:error")
             app.log.log("error", message=str(exc))
             return
+        finally:
+            spinner.stop()
         stream_write("\n")
         assistant = result.message
         app.messages.append(assistant)

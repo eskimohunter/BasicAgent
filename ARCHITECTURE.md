@@ -112,8 +112,9 @@ user text
    │
    └─ repeat up to config.max_steps times:
         │
-        ├─ stream_chat(app, stream_write) ──► POST {base_url}/chat/completions
+        ├─ stream_chat(app, on_delta) ──────► POST {base_url}/chat/completions
         │      │                                stream: true, tools: allowed schemas
+        │      │                                (spinner runs until first delta)
         │      │
         │      ├─ SSE content deltas ──────► rendered immediately
         │      └─ SSE tool_call deltas ────► accumulated by index
@@ -136,6 +137,15 @@ user text
 
 If the loop exhausts `max_steps`, a warning is printed and logged, and the turn
 ends. This bounds runaway tool loops.
+
+### Wait indicator
+
+Each `stream_chat` call is wrapped in a `Spinner` (`agent.py:206`): a daemon
+thread that animates an ASCII frame on the current line until the first content
+delta arrives, or until the stream ends if the model only emits tool calls. The
+thread writes directly to `stdout` and is always stopped (and joined) in a
+`finally` block before anything else is printed, so it cannot interleave with
+the renderer. A short grace period suppresses the spinner for fast responses.
 
 ### Interruption
 
@@ -374,6 +384,9 @@ in `/tmp/opencode`:
 - `test_tui.py` — uses `prompt_toolkit`'s `create_pipe_input`/`DummyOutput` to
   verify `Tab` toggles PLAN↔BUILD, the system prompt updates, mode changes are
   logged, and `Ctrl+D` exits.
+- A delayed mock SSE server (first chunk held back a few seconds) to confirm the
+  wait spinner animates, clears cleanly when text starts, stays invisible on
+  fast responses, and leaves no artifacts on `Ctrl+C`.
 
 Static checks (the first two are provided by the dev shell):
 
