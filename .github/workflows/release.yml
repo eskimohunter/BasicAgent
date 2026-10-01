@@ -139,6 +139,6 @@ jobs:
             gh release upload $env:GITHUB_REF_NAME @assets --clobber
           } else {
             $extra = @()
-            if ($env:GITHUB_REF_NAME -match '-') { $extra += '--prerelease' }
+            if ($env:GITHUB_REF_NAME -match '-' -or $env:GITHUB_REF_NAME -match '^v0\.') { $extra += '--prerelease' }
             gh release create $env:GITHUB_REF_NAME @assets --title "BA $env:GITHUB_REF_NAME" --generate-notes @extra
           }

@@ -246,7 +246,8 @@ The workflow then validates that the tag matches `VERSION`, downloads the pinned
 python-build-standalone archive, verifies its published SHA-256 checksum, installs
 `requirements.txt`, smoke-tests the bundled agent, zips everything with
 `ba.cmd`, and publishes a GitHub Release with the zip and a `.sha256`
-file. Tags containing a hyphen (e.g. `v0.2.0-rc1`) are marked as pre-releases.
+file. Tags containing a hyphen (e.g. `v0.2.0-rc1`) or a `v0.x` version are marked
+as pre-releases.
 
 For a dry run without releasing, trigger the workflow manually (Actions → Release
 (Windows) → Run workflow); it uploads the zip as a workflow artifact only.
