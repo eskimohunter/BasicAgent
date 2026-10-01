@@ -32,7 +32,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 
 APP_NAME = "BA"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 DEFAULT_BASE_URL = "http://localhost:8080/v1"
