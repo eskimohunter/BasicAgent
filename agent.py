@@ -27,8 +27,11 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit import print_formatted_text as pt_print
+from prompt_toolkit.application import Application
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 
 APP_NAME = "BA"
@@ -65,6 +68,8 @@ STYLE = Style.from_dict(
         "error": "bold #ff5f5f",
         "warn": "#ffd75f",
         "info": "bold #5fd7ff",
+        "approval": "#ffd75f",
+        "approval.selected": "bg:#ffd75f #1c1c1c bold",
     }
 )
 
@@ -721,14 +726,18 @@ def build_system_prompt(config: Config, mode: Mode) -> str:
 
 
 class Approvals:
-    """Interactive shell-command approval with an in-memory exact-match allowlist."""
+    """Interactive shell-command approval via a Yes/No button prompt.
+
+    ``allowed`` holds pre-approved exact command strings. It is empty for now and
+    will be populated from a config file in a future change.
+    """
 
     def __init__(self, session: PromptSession, config: Config):
         self.session = session
         self.config = config
         self.allowed: set[str] = set()
 
-    def ask(self, command: str) -> str:
+    def ask(self, command: str) -> bool:
         lines = [
             "",
             "+-- run_command " + "-" * 47,
@@ -738,21 +747,54 @@ class Approvals:
             lines.append(f"| $ {command_line}")
         lines.append("+" + "-" * 62)
         say("\n".join(lines), "class:warn")
+
+        options = [("Yes", True), ("No", False)]
+        selected = {"index": 0}
+
+        def render() -> FormattedText:
+            fragments: list[tuple[str, str]] = [("class:approval", " Run?  ")]
+            for index, (label, _) in enumerate(options):
+                if index:
+                    fragments.append(("", "  "))
+                style = (
+                    "class:approval.selected"
+                    if index == selected["index"]
+                    else "class:approval"
+                )
+                fragments.append((style, f"[ {label} ]"))
+            return FormattedText(fragments)
+
+        bindings = KeyBindings()
+
+        @bindings.add("left")
+        @bindings.add("right")
+        def _move(event: Any) -> None:
+            selected["index"] = 1 - selected["index"]
+            event.app.invalidate()
+
+        @bindings.add("enter")
+        def _confirm(event: Any) -> None:
+            event.app.exit(result=options[selected["index"]][1])
+
+        @bindings.add("c-c")
+        @bindings.add("c-d")
+        def _cancel(event: Any) -> None:
+            event.app.exit(result=False)
+
+        confirmation: Application[bool] = Application(
+            layout=Layout(
+                Window(FormattedTextControl(render, show_cursor=False, focusable=True))
+            ),
+            key_bindings=bindings,
+            style=STYLE,
+            full_screen=False,
+            input=self.session.app.input,
+            output=self.session.app.output,
+        )
         try:
-            answer = self.session.prompt(
-                FormattedText(
-                    [("class:warn", "Run? [y] once  [a] always (session)  [n] deny: ")]
-                ),
-                key_bindings=KeyBindings(),
-            ).strip().lower()
+            return confirmation.run()
         except (KeyboardInterrupt, EOFError):
-            return "deny"
-        if answer in ("y", "yes"):
-            return "allow"
-        if answer in ("a", "always"):
-            self.allowed.add(command)
-            return "always"
-        return "deny"
+            return False
 
 
 # ---------------------------------------------------------------------------
@@ -961,9 +1003,9 @@ def execute_tool(app: App, call: dict[str, Any]) -> str:
             app.log.log("tool_result", name=name, call_id=call_id, ok=False, content=result)
             return result
         if command not in app.approvals.allowed:
-            decision = app.approvals.ask(command)
-            app.log.log("approval", command=command, decision=decision)
-            if decision == "deny":
+            allowed = app.approvals.ask(command)
+            app.log.log("approval", command=command, decision="allow" if allowed else "deny")
+            if not allowed:
                 result = "User denied execution of this command."
                 app.log.log("tool_result", name=name, call_id=call_id, ok=False, content=result)
                 return result

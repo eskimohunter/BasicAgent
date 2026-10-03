@@ -27,8 +27,8 @@ BA [plan]> This project uses a Nix flake...
 - **PLAN / BUILD modes** — press `Tab` to toggle. PLAN is read-only and enforced
   structurally (write/run tools are not even offered to the model). BUILD enables
   file edits and shell commands.
-- **Approval gate** — every shell command is shown to you first:
-  run once (`y`), always this session (`a`), or deny (`n`).
+- **Approval gate** — every shell command is shown to you first, with Yes/No
+  buttons (`←`/`→` then `Enter`) before it runs.
 - **Audit log** — every message, tool call, approval and result is appended to a
   JSONL file for later review.
 - **Small tool surface** — `read_file`, `list_dir`, `grep`, `fetch_url`,
@@ -143,13 +143,15 @@ and working directory:
 | cwd: /home/you/project
 | $ git status
 +--------------------------------------------------------------
-Run? [y] once  [a] always (session)  [n] deny:
+ Run?  [ Yes ]  [ No ]
 ```
 
-- `y` — run this one time.
-- `a` — remember this exact command for the rest of the session
-  (exact string match; in memory only, never persisted).
-- `n` (or empty, or `Ctrl+C`) — deny; the model is told the user denied it.
+- `←` / `→` — highlight Yes or No (Yes is selected by default).
+- `Enter` — confirm the highlighted choice.
+- `Ctrl+C` / `Ctrl+D` — deny; the model is told the user denied it.
+
+Every command is approved individually; the prompt does not remember earlier
+approvals.
 
 The command is executed exactly as shown, via the system shell, in the workspace
 directory. There is no hidden wrapping or rewriting.
@@ -202,7 +204,7 @@ regardless of the terminal's working directory. One JSON object per line:
 | `user_message` | user input |
 | `assistant_message` | assistant text and any tool calls |
 | `tool_call` | tool name, full arguments, call id |
-| `approval` | command and decision (`allow` / `always` / `deny`) |
+| `approval` | command and decision (`allow` / `deny`) |
 | `tool_result` | call id, success flag, capped output |
 | `mode_change` | new mode |
 | `error` | agent or step-limit errors |
@@ -212,7 +214,8 @@ regardless of the terminal's working directory. One JSON object per line:
 
 - The API key is never logged; it is recorded as `[redacted]`.
 - Shell commands are displayed verbatim before execution and never rewritten.
-- The session allowlist is exact-match and in-memory only.
+- The command allowlist (config-file support planned) is exact-match only; until
+  then every command is approved individually.
 - File tools are confined to the workspace by default.
 - Tool output sent to the model is truncated to protect the context window; the
   truncation marker is explicit.

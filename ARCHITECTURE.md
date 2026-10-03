@@ -45,7 +45,7 @@ and refer to the current revision.
 | `build_tools` | `agent.py:454` | Registry: name → `Tool` |
 | `load_project_instructions` | `agent.py:654-681` | Workspace `Agents.md` → system prompt |
 | `build_system_prompt` | `agent.py:684` | Mode-aware system prompt (incl. project instructions) |
-| `Approvals` | `agent.py:586` | Interactive shell-command gate + session allowlist |
+| `Approvals` | `agent.py:728` | Yes/No button approval gate + allowlist seam |
 | `StreamResult` | `agent.py:627` | One assistant reply: message dict + interrupted flag |
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |
 | `finalize_tool_calls` | `agent.py:662` | Merge streamed tool-call fragments |
@@ -70,7 +70,7 @@ class App:
     mode: Mode                      # starts as PLAN
     messages: list[dict]            # OpenAI chat messages; messages[0] is system
     tools: dict[str, Tool]
-    approvals: Approvals            # session allowlist
+    approvals: Approvals            # Yes/No gate + allowlist seam
 ```
 
 `messages` is the single source of conversation truth and is sent verbatim to the
@@ -132,7 +132,7 @@ user text
              │    ├─ parse/validate arguments
              │    ├─ unknown tool?            → ERROR result
              │    ├─ write tool in PLAN?      → ERROR result
-             │    ├─ needs approval & unseen? → Approvals.ask ──► audit: approval
+             │    ├─ needs approval? → Approvals.ask ──► audit: approval
              │    │      └─ denied           → ERROR result
              │    ├─ run handler              ─────────────────► audit: tool_call
              │    └─ cap + log result         ─────────────────► audit: tool_result
@@ -234,7 +234,7 @@ OpenAI function schema.
    somehow requests it. This is the second enforcement layer (the first is not
    sending the schema at all).
 4. **Approval gate** — `requires_approval` tools (only `run_command`) are checked
-   against the session allowlist; if absent, `Approvals.ask` runs.
+   against the allowlist; if absent, the Yes/No `Approvals.ask` prompt runs.
 5. Log `tool_call` with full arguments.
 6. Execute the handler. `ToolError` becomes `ERROR: <message>`; `TypeError`
    (bad argument names/types) and unexpected exceptions are converted likewise,
@@ -287,7 +287,8 @@ mode.
 
 ## 9. Approval state machine
 
-`Approvals` (`agent.py:586`) holds `allowed: set[str]` (exact command strings).
+`Approvals` (`agent.py:728`) holds `allowed: set[str]` (exact command strings).
+The set is empty for now; it is the seam for a future config-file allowlist.
 
 ```
                  ┌───────────────────────────────┐
@@ -296,25 +297,25 @@ mode.
                                 │ command in allowed?
                      yes ┌──────┴──────┐ no
                          ▼             ▼
-                    execute     show command + cwd
+                    execute     show command + cwd + Yes/No buttons
                                       │
-                      y ──────────────┤ execute
-                      a ──────────────┤ add to allowed, execute
-                      n / empty ──────┤ deny  → "User denied execution..."
-                      Ctrl+C/EOF ─────┘ deny
+                     Enter on Yes ────┤ execute
+                     Enter on No ─────┤ deny  → "User denied execution..."
+                     Ctrl+C/EOF ──────┘ deny
 ```
 
 Properties:
 
 - The displayed command is byte-for-byte what is passed to the shell.
-- The allowlist is exact-match only (no prefix or wildcard rules), in memory
-  only, and never persisted.
+- The widget is a small inline `prompt_toolkit` `Application` with a
+  `FormattedTextControl(show_cursor=False)`, reusing the shared session's
+  input/output. `←`/`→` move the highlight, `Enter` confirms; `Yes` is the
+  default. It does not share the main prompt's `Tab` binding.
+- The allowlist is exact-match only (no prefix or wildcard rules) and is empty
+  until config-file support lands, so every command is approved per request.
 - Denials are returned to the model as a tool result so it can propose an
   alternative.
 - Every decision is logged as an `approval` event with the command.
-
-The approval prompt is a second `PromptSession.prompt` call with empty key
-bindings, so `Tab` cannot accidentally change mode mid-turn.
 
 ## 10. Audit log
 
@@ -332,7 +333,7 @@ Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 | `user_message` | `content` |
 | `assistant_message` | `content`, `tool_calls` |
 | `tool_call` | `name`, `arguments` (full object), `call_id` |
-| `approval` | `command`, `decision` (`allow`/`always`/`deny`) |
+| `approval` | `command`, `decision` (`allow`/`deny`) |
 | `tool_result` | `name`, `call_id`, `ok`, `content` (capped) |
 | `mode_change` | `mode` |
 | `error` | `message` |
@@ -415,7 +416,7 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 | Synchronous linear loop | Easiest possible control flow to reason about | No streaming input; the UI is blocked during a turn |
 | Native `tool_calls` only | Standard protocol; no brittle text parsing | Requires server-side function-calling support |
 | PLAN mode default | The first action of a fresh session can never modify the host | One extra Tab before editing |
-| Exact-match, in-memory allowlist | Auditable and conservative; no persisted policy to drift | Re-approval across sessions; repeated long commands need `a` |
+| Exact-match command allowlist | Auditable and conservative; no persisted policy to drift | Every command is re-approved per request (config-file allowlist planned) |
 | Workspace path boundary | Prevents accidental reads/writes outside the project | Requires `--allow-outside` for legitimate external paths |
 | Full history, no compaction | Simple and lossless; local models often have large contexts | Very long sessions can exceed the model's context window |
 | JSONL audit log | Grep-able, append-only, crash-safe with per-event flush | Unbounded growth; external rotation needed |
