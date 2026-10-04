@@ -47,7 +47,7 @@ except ImportError:
     pass
 
 APP_NAME = "BA"
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 DEFAULT_BASE_URL = "http://localhost:8080/v1"
