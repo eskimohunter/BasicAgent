@@ -1,2 +1,2 @@
 prompt-toolkit==3.0.53
-pygments==2.19.2
+pygments==2.20.0
