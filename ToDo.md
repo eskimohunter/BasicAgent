@@ -11,4 +11,4 @@
 - [ ] Look at Opencode base prompt + plan/build mode
 - [x] Logs in application directory not project
 - [x] Refused to read ‘binary file’ .xml
-- [ ] Display context usage in the toolbar
+- [x] Display context usage in the toolbar

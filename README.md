@@ -27,6 +27,9 @@ BA [plan]> This project uses a Nix flake...
   tables and links while they stream.
 - **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
   model's first output of a turn.
+- **Context usage** — the status bar shows tokens used against the context
+  window (probed from the server, or set with `--context-window`). Exact when
+  the server reports `usage`, estimated otherwise.
 - **PLAN / BUILD modes** — press `Tab` to toggle. PLAN is read-only and enforced
   structurally (write/run tools are not even offered to the model). BUILD enables
   file edits and shell commands.
@@ -204,6 +207,7 @@ Precedence: CLI argument > environment variable > default.
 | `--log-dir` | — | `<app dir>/logs` | Audit log directory |
 | `--no-log` | — | off | Disable audit logging |
 | `--no-markdown` | — | off | Render assistant replies as plain text |
+| `--context-window` | `AGENT_CONTEXT_WINDOW` | probe | Context window in tokens; `0` probes `/props` then `/models` |
 | `--allow-outside` | — | off | Allow file tools outside the workspace |
 | `--system-prompt` | — | built-in | Replace the base system prompt (workspace `Agents.md` is still appended) |
 
@@ -215,7 +219,7 @@ regardless of the terminal's working directory. One JSON object per line:
 
 | Event | Contents |
 | --- | --- |
-| `session_start` | version, base URL, model, workspace, mode, redacted API key, project instructions path/size |
+| `session_start` | version, base URL, model, workspace, mode, redacted API key, project instructions path/size, context window/source |
 | `user_message` | user input |
 | `assistant_message` | assistant text and any tool calls |
 | `tool_call` | tool name, full arguments, call id |

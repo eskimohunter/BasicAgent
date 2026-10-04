@@ -37,6 +37,7 @@ and refer to the current revision.
 | `Mode` | `agent.py:75` | `PLAN` / `BUILD` enum |
 | `Config` | `agent.py:81` | All runtime settings |
 | `parse_args` | `agent.py:97` | CLI parsing, env fallbacks, precedence |
+| `probe_context_window` | `agent.py:241` | Startup context-window probe (`/props`, `/models`) |
 | `AuditLog` | `agent.py:162` | Append-only JSONL writer |
 | `say` / `stream_write` / `Spinner` | `agent.py:265-371` | Terminal output helpers and wait spinner |
 | `MarkdownStream` | `agent.py:373-732` | Incremental markdown rendering (`--no-markdown` bypasses) |
@@ -57,7 +58,8 @@ and refer to the current revision.
 | `run_turn` | `agent.py:850` | One user turn: stream → tools → repeat |
 | `handle_command` | `agent.py:892` | Slash commands |
 | `App` | `agent.py:932` | Wires config, log, session, mode, messages, tools, approvals |
-| `build_toolbar` / `build_key_bindings` | `agent.py:960-980` | Status bar and Tab binding |
+| `build_toolbar` / `build_key_bindings` | `agent.py:1768-1789` | Status bar (mode, model, ctx) and Tab binding |
+| `estimate_tokens` / `context_tokens` | `agent.py:1743-1765` | Context usage estimate + exact/estimate reconciliation |
 | `main` | `agent.py:992` | Banner, REPL loop, shutdown |
 
 ## 3. State model
@@ -93,12 +95,16 @@ such as `AGENT_BASE_URL`.
 
 1. Parse configuration and load workspace project instructions (`Agents.md`,
    any capitalization, capped at 32 KB) into the system prompt.
-2. Open the audit log (unless disabled) and write `session_start` with a
-   redacted API key.
-3. Create the `PromptSession` with the shared style sheet, the `App`, and the
+2. Unless `--context-window`/`AGENT_CONTEXT_WINDOW` is set, probe the server for
+   the context window (`/props`, then `/models`); a 5 s best-effort attempt that
+   falls back to unknown.
+3. Open the audit log (unless disabled) and write `session_start` with a
+   redacted API key and the resolved context window.
+4. Create the `PromptSession` with the shared style sheet, the `App`, and the
    Tab key binding.
-4. Print the banner (endpoint, model, workspace, log path, current mode).
-5. Enter the REPL loop.
+5. Print the banner (endpoint, model, workspace, log path, context window,
+   current mode).
+6. Enter the REPL loop.
 
 The REPL loop calls `session.prompt(...)` with the Tab binding and a
 `bottom_toolbar` callable. `Ctrl+C` at the prompt raises `KeyboardInterrupt` and
@@ -185,6 +191,7 @@ library.
   "model": "<config.model>",
   "messages": [ ... ],
   "stream": true,
+  "stream_options": { "include_usage": true },  // retried without on HTTP 400
   "tools": [ ... ],        // only when the mode permits at least one tool
   "tool_choice": "auto",
   "temperature": ...,      // only when set
@@ -194,6 +201,13 @@ library.
 
 `Authorization: Bearer <api_key>` is always sent; LAN servers that ignore auth
 accept the default `none`.
+
+**Usage.** `stream_options.include_usage` asks the server for a final `usage`
+chunk. If the request is rejected with HTTP 400, `stream_chat` retries once
+without it and disables it for the rest of the session. Usage is also read from
+non-stream bodies. `App.record_usage` stores `prompt_tokens + completion_tokens`
+along with the message count; the toolbar uses that exact value until more
+messages are appended, then falls back to the byte estimate (`estimate_tokens`).
 
 **SSE parsing.** The response is consumed line by line. Only `data:` lines are
 considered; `[DONE]` terminates the stream; unparseable chunks are skipped
@@ -343,7 +357,7 @@ Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 
 | Event | Extra fields |
 | --- | --- |
-| `session_start` | `version`, `base_url`, `model`, `workspace`, `mode`, `api_key` (redacted) |
+| `session_start` | `version`, `base_url`, `model`, `workspace`, `mode`, `api_key` (redacted), `instructions`, `instructions_bytes`, `context_window`, `context_window_source` |
 | `user_message` | `content` |
 | `assistant_message` | `content`, `tool_calls` |
 | `tool_call` | `name`, `arguments` (full object), `call_id` |
@@ -432,13 +446,16 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 | PLAN mode default | The first action of a fresh session can never modify the host | One extra Tab before editing |
 | Exact-match command allowlist | Auditable and conservative; no persisted policy to drift | Every command is re-approved per request (config-file allowlist planned) |
 | Internal streaming markdown renderer | No new parsing dependency; keeps token-by-token prose and the prompt_toolkit output path | Hand-rolled subset: no nested emphasis, per-line code lexing, tables buffered |
+| Server `usage` + byte estimate for context | Exact when the server reports usage; always something to show otherwise | Numbers switch between exact and estimated; `include_usage` retried without on HTTP 400 |
+| Context window probe at startup | Zero-config denominator for the toolbar | One 5 s best-effort request pair; unknown if the server hides it |
 | Workspace path boundary | Prevents accidental reads/writes outside the project | Requires `--allow-outside` for legitimate external paths |
 | Full history, no compaction | Simple and lossless; local models often have large contexts | Very long sessions can exceed the model's context window |
 | JSONL audit log | Grep-able, append-only, crash-safe with per-event flush | Unbounded growth; external rotation needed |
 
 ## 15. Known limitations and future work
 
-- No context compaction or token accounting; long sessions will eventually
+- No context compaction; the toolbar shows exact server `usage` when available
+  and a byte-based estimate otherwise, but long sessions will still eventually
   overflow the model context.
 - No session persistence or resume; `/clear` is destructive.
 - No retry/backoff on transient network failures.

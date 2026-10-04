@@ -113,6 +113,9 @@ STYLE = Style.from_dict(
         "md.table": "#d0d0d0",
         "md.table.header": "bold #ffd75f",
         "md.table.border": "#585858",
+        "ctx": "#b0b0b0",
+        "ctx.warn": "#ffd75f",
+        "ctx.hot": "bold #ff5f5f",
     }
 )
 
@@ -148,6 +151,8 @@ class Config:
     project_instructions: str | None = None
     project_instructions_path: Path | None = None
     markdown: bool = True
+    context_window: int = 0
+    context_window_source: str = "unknown"
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -204,6 +209,12 @@ def parse_args(argv: list[str] | None = None) -> Config:
         action="store_true",
         help="Allow file tools to access paths outside the workspace",
     )
+    parser.add_argument(
+        "--context-window",
+        type=int,
+        default=os.environ.get("AGENT_CONTEXT_WINDOW"),
+        help="Model context window in tokens (default: probe the server)",
+    )
     parser.add_argument("--system-prompt", default=None, help="Override the built-in system prompt")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     ns = parser.parse_args(argv)
@@ -222,7 +233,59 @@ def parse_args(argv: list[str] | None = None) -> Config:
         allow_outside=ns.allow_outside,
         system_prompt=ns.system_prompt,
         markdown=not ns.no_markdown,
+        context_window=max(0, ns.context_window or 0),
+        context_window_source="config" if (ns.context_window or 0) > 0 else "unknown",
     )
+
+
+def probe_context_window(config: Config) -> tuple[int, str]:
+    """Best-effort context window probe. Returns (tokens, source)."""
+    timeout = min(config.request_timeout, 5.0)
+    root = config.base_url.removesuffix("/v1")
+
+    def get_json(url: str) -> Any:
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {config.api_key}"})
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+    try:
+        props = get_json(f"{root}/props")
+        if isinstance(props, dict):
+            settings = props.get("default_generation_settings")
+            n_ctx = settings.get("n_ctx") if isinstance(settings, dict) else None
+            if isinstance(n_ctx, int) and n_ctx > 0:
+                return n_ctx, "props"
+    except (OSError, ValueError):
+        pass
+
+    try:
+        models = get_json(f"{config.base_url}/models")
+        entries = models.get("data") if isinstance(models, dict) else None
+        if isinstance(entries, list) and entries:
+            entry = next(
+                (e for e in entries if isinstance(e, dict) and e.get("id") == config.model),
+                None,
+            )
+            if entry is None:
+                entry = entries[0] if isinstance(entries[0], dict) else {}
+            for key in (
+                "max_model_len",
+                "context_length",
+                "context_window",
+                "max_context_length",
+                "n_ctx",
+            ):
+                value = entry.get(key)
+                if isinstance(value, int) and value > 0:
+                    return value, "models"
+            meta = entry.get("meta")
+            n_ctx = meta.get("n_ctx") if isinstance(meta, dict) else None
+            if isinstance(n_ctx, int) and n_ctx > 0:
+                return n_ctx, "models"
+    except (OSError, ValueError):
+        pass
+
+    return 0, "unknown"
 
 
 class AuditLog:
@@ -1272,9 +1335,10 @@ class Approvals:
 class StreamResult:
     message: dict[str, Any]
     interrupted: bool = False
+    usage: dict[str, Any] | None = None
 
 
-def parse_non_stream_response(body: str) -> dict[str, Any]:
+def parse_non_stream_response(body: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         obj = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -1301,7 +1365,8 @@ def parse_non_stream_response(body: str) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": msg.get("content") or ""}
     if tool_calls:
         message["tool_calls"] = tool_calls
-    return message
+    usage = obj.get("usage")
+    return message, usage if isinstance(usage, dict) else None
 
 
 def finalize_tool_calls(calls: dict[int, dict[str, str]]) -> list[dict[str, Any]]:
@@ -1336,37 +1401,58 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
         payload["temperature"] = config.temperature
     if config.max_tokens is not None:
         payload["max_tokens"] = config.max_tokens
-    request = urllib.request.Request(
-        f"{config.base_url}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {config.api_key}",
-        },
-        method="POST",
-    )
+
+    def open_chat(with_stream_options: bool) -> Any:
+        if with_stream_options:
+            payload["stream_options"] = {"include_usage": True}
+        else:
+            payload.pop("stream_options", None)
+        request = urllib.request.Request(
+            f"{config.base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {config.api_key}",
+            },
+            method="POST",
+        )
+        return urllib.request.urlopen(request, timeout=config.request_timeout)
+
+    def failure(exc: Exception) -> AgentError:
+        if isinstance(exc, urllib.error.HTTPError):
+            body = exc.read().decode("utf-8", errors="replace")[:2000]
+            return AgentError(f"HTTP {exc.code} from {config.base_url}: {body}")
+        if isinstance(exc, urllib.error.URLError):
+            return AgentError(f"cannot reach {config.base_url}: {exc.reason}")
+        return AgentError(f"request failed: {exc}")
+
     try:
-        response = urllib.request.urlopen(request, timeout=config.request_timeout)
+        response = open_chat(app.stream_usage)
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:2000]
-        raise AgentError(f"HTTP {exc.code} from {config.base_url}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise AgentError(f"cannot reach {config.base_url}: {exc.reason}") from exc
-    except OSError as exc:
-        raise AgentError(f"request failed: {exc}") from exc
+        if not (app.stream_usage and exc.code == 400):
+            raise failure(exc) from exc
+        app.stream_usage = False
+        exc.close()
+        try:
+            response = open_chat(False)
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as retry_exc:
+            raise failure(retry_exc) from retry_exc
+    except (urllib.error.URLError, OSError) as exc:
+        raise failure(exc) from exc
 
     content_parts: list[str] = []
     calls: dict[int, dict[str, str]] = {}
+    usage: dict[str, Any] | None = None
     interrupted = False
     try:
         with response:
             content_type = (response.headers.get("Content-Type") or "").lower()
             if "text/event-stream" not in content_type:
                 body = response.read().decode("utf-8", errors="replace")
-                message = parse_non_stream_response(body)
+                message, usage = parse_non_stream_response(body)
                 if message.get("content"):
                     on_delta(message["content"])
-                return StreamResult(message=message)
+                return StreamResult(message=message, usage=usage)
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line.startswith("data:"):
@@ -1378,6 +1464,9 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
                     chunk = json.loads(chunk_text)
                 except json.JSONDecodeError:
                     continue
+                chunk_usage = chunk.get("usage")
+                if isinstance(chunk_usage, dict):
+                    usage = chunk_usage
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
@@ -1407,12 +1496,13 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
         return StreamResult(
             message={"role": "assistant", "content": content + "\n[interrupted by user]"},
             interrupted=True,
+            usage=usage,
         )
     tool_calls = finalize_tool_calls(calls)
     message = {"role": "assistant", "content": content}
     if tool_calls:
         message["tool_calls"] = tool_calls
-    return StreamResult(message=message)
+    return StreamResult(message=message, usage=usage)
 
 
 # ---------------------------------------------------------------------------
@@ -1534,6 +1624,7 @@ def run_turn(app: App, user_text: str) -> None:
             stream_write("\n")
         assistant = result.message
         app.messages.append(assistant)
+        app.record_usage(result.usage)
         app.log.log(
             "assistant_message",
             content=assistant.get("content", ""),
@@ -1581,6 +1672,8 @@ def handle_command(app: App, text: str) -> bool:
         app.messages = [
             {"role": "system", "content": build_system_prompt(app.config, app.mode)}
         ]
+        app.exact_context = 0
+        app.exact_context_at = -1
         say("conversation cleared", "class:info")
     elif command == "/mode":
         app.toggle_mode()
@@ -1613,6 +1706,9 @@ class App:
         ]
         self.tools = build_tools(config)
         self.approvals = Approvals(session, config)
+        self.stream_usage = True
+        self.exact_context = 0
+        self.exact_context_at = -1
 
     def tool_allowed(self, tool: Tool) -> bool:
         return not (tool.writes and self.mode is Mode.PLAN)
@@ -1620,24 +1716,73 @@ class App:
     def allowed_tool_schemas(self) -> list[dict[str, Any]]:
         return [tool_schema(tool) for tool in self.tools.values() if self.tool_allowed(tool)]
 
+    def record_usage(self, usage: dict[str, Any] | None) -> None:
+        if not isinstance(usage, dict):
+            return
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        if isinstance(prompt, int) and isinstance(completion, int):
+            self.exact_context = prompt + completion
+            self.exact_context_at = len(self.messages)
+
     def toggle_mode(self) -> None:
         self.mode = Mode.BUILD if self.mode is Mode.PLAN else Mode.PLAN
         self.messages[0] = {
             "role": "system",
             "content": build_system_prompt(self.config, self.mode),
         }
+        self.exact_context = 0
+        self.exact_context_at = -1
         self.log.log("mode_change", mode=self.mode.value)
         say(f"mode: {self.mode.value.upper()}", "class:info")
 
 
+CHARS_PER_TOKEN = 4
+MESSAGE_TOKEN_OVERHEAD = 4
+
+
+def estimate_tokens(
+    messages: list[dict[str, Any]],
+    schemas: list[dict[str, Any]] | None = None,
+) -> int:
+    payload: Any = messages if not schemas else [messages, schemas]
+    size = len(json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8"))
+    return size // CHARS_PER_TOKEN + MESSAGE_TOKEN_OVERHEAD * len(messages)
+
+
+def format_tokens(count: int) -> str:
+    if count < 1000:
+        return str(count)
+    return f"{count / 1000:.1f}k"
+
+
+def context_tokens(app: App) -> tuple[int, bool]:
+    """Return (tokens, exact) for the context of the next request."""
+    if app.exact_context and 0 <= app.exact_context_at <= len(app.messages):
+        appended = app.messages[app.exact_context_at :]
+        if not appended:
+            return app.exact_context, True
+        return app.exact_context + estimate_tokens(appended), False
+    return estimate_tokens(app.messages, app.allowed_tool_schemas()), False
+
+
 def build_toolbar(app: App) -> FormattedText:
+    tokens, exact = context_tokens(app)
+    label = f"ctx {'~' if not exact else ''}{format_tokens(tokens)}"
+    style = "class:ctx"
+    if app.config.context_window:
+        label += f"/{format_tokens(app.config.context_window)}"
+        ratio = tokens / app.config.context_window
+        if ratio >= 0.95:
+            style = "class:ctx.hot"
+        elif ratio >= 0.8:
+            style = "class:ctx.warn"
     return FormattedText(
         [
             (f"class:mode.{app.mode.value}", f" {app.mode.value.upper()} "),
-            (
-                "class:toolbar",
-                f" {app.config.model}  {app.config.workspace}  Tab:mode  /help ",
-            ),
+            ("class:toolbar", f" {app.config.model}  {app.config.workspace} "),
+            (style, f" {label} "),
+            ("class:toolbar", " Tab:mode  /help "),
         ]
     )
 
@@ -1659,6 +1804,8 @@ def print_banner(app: App) -> None:
     say(f"  workspace: {app.config.workspace}")
     say(f"  log:       {app.log.path if app.log.path else 'disabled'}")
     say(f"  agents:    {app.config.project_instructions_path or 'none'}")
+    context = app.config.context_window if app.config.context_window else "unknown"
+    say(f"  context:   {context}")
     say("  mode:      PLAN (read-only) - press Tab to switch to BUILD")
     say("  /help for commands")
 
@@ -1666,6 +1813,8 @@ def print_banner(app: App) -> None:
 def main(argv: list[str] | None = None) -> int:
     config = parse_args(argv)
     load_project_instructions(config)
+    if config.context_window <= 0:
+        config.context_window, config.context_window_source = probe_context_window(config)
     log = AuditLog(config)
     session: PromptSession = PromptSession(style=STYLE)
     app = App(config, log, session)
@@ -1684,6 +1833,8 @@ def main(argv: list[str] | None = None) -> int:
         instructions_bytes=len(config.project_instructions)
         if config.project_instructions
         else 0,
+        context_window=config.context_window,
+        context_window_source=config.context_window_source,
     )
     print_banner(app)
     try:
