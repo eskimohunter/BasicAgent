@@ -22,6 +22,9 @@ BA [plan]> This project uses a Nix flake...
 - **Single file** — `agent.py` is the whole agent; stdlib HTTP/SSE plus
   `prompt_toolkit` for the TUI.
 - **Streaming** — responses are rendered token-by-token as they arrive.
+- **Markdown rendering** — assistant replies render headings, emphasis, code
+  fences (syntax-highlighted when `pygments` is installed), lists, task lists,
+  tables and links while they stream.
 - **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
   model's first output of a turn.
 - **PLAN / BUILD modes** — press `Tab` to toggle. PLAN is read-only and enforced
@@ -38,12 +41,12 @@ BA [plan]> This project uses a Nix flake...
 
 ## Requirements
 
-- Python 3.10+ with `prompt_toolkit`
+- Python 3.10+ with `prompt_toolkit` (plus `pygments` for code-block highlighting)
 - An OpenAI-compatible chat completions endpoint that supports **native tool
   calling** (function calling), e.g. llama.cpp server with `--jinja`, vLLM,
   LM Studio, or similar.
 - Linux: Nix with flakes (this repository ships a `flake.nix`).
-- Windows: Python from python.org plus `pip install prompt-toolkit`.
+- Windows: Python from python.org plus `pip install -r requirements.txt`.
 
 ## Setup
 
@@ -54,8 +57,8 @@ nix develop
 python agent.py --base-url http://192.168.1.10:8080/v1 --model qwen2.5-coder
 ```
 
-The dev shell provides Python with `prompt-toolkit` and `ruff`. No venv or `pip`
-is required. `flake.lock` pins nixpkgs for reproducibility.
+The dev shell provides Python with `prompt-toolkit`, `pygments` and `ruff`. No
+venv or `pip` is required. `flake.lock` pins nixpkgs for reproducibility.
 
 ### Windows
 
@@ -121,6 +124,17 @@ python agent.py --workspace ~/src/myproject --no-log
 | `/tools` | List tools available in the current mode |
 | `/log` | Show the path of the current audit log |
 | `/exit` | Quit (also `/quit`) |
+
+### Markdown rendering
+
+Assistant replies are rendered as they stream: headings, bold/italic/strikethrough,
+inline and fenced code, lists, task lists, blockquotes, horizontal rules, links
+and tables. Fenced code is syntax-highlighted when `pygments` is installed.
+Partial markers are held only until they resolve, so prose still appears
+token-by-token.
+
+Known limits: emphasis is not nested, fenced code is highlighted line by line,
+and tables are printed once the table block ends. Pass `--no-markdown` for raw text.
 
 ## Modes
 
@@ -189,6 +203,7 @@ Precedence: CLI argument > environment variable > default.
 | `--workspace` | — | current directory | Workspace root for tools and shell |
 | `--log-dir` | — | `<app dir>/logs` | Audit log directory |
 | `--no-log` | — | off | Disable audit logging |
+| `--no-markdown` | — | off | Render assistant replies as plain text |
 | `--allow-outside` | — | off | Allow file tools outside the workspace |
 | `--system-prompt` | — | built-in | Replace the base system prompt (workspace `Agents.md` is still appended) |
 

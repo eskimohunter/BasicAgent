@@ -38,7 +38,9 @@ and refer to the current revision.
 | `Config` | `agent.py:81` | All runtime settings |
 | `parse_args` | `agent.py:97` | CLI parsing, env fallbacks, precedence |
 | `AuditLog` | `agent.py:162` | Append-only JSONL writer |
-| `say` / `stream_write` / `cap` | `agent.py:191-202` | Terminal rendering and output truncation |
+| `say` / `stream_write` / `Spinner` | `agent.py:265-371` | Terminal output helpers and wait spinner |
+| `MarkdownStream` | `agent.py:373-732` | Incremental markdown rendering (`--no-markdown` bypasses) |
+| `cap` | `agent.py:734` | Tool/result truncation |
 | `Tool` | `agent.py:211` | Tool metadata: schema, handler, flags |
 | `resolve_path` / `is_excluded` | `agent.py:235-258` | Workspace boundary and directory excludes |
 | `tool_*` handlers | `agent.py:261-451` | The seven tools |
@@ -118,9 +120,9 @@ user text
         │
         ├─ stream_chat(app, on_delta) ──────► POST {base_url}/chat/completions
         │      │                                stream: true, tools: allowed schemas
-        │      │                                (spinner runs until first delta)
+        │      │                                (spinner runs until first output)
         │      │
-        │      ├─ SSE content deltas ──────► rendered immediately
+        │      ├─ SSE content deltas ──────► MarkdownStream.feed → terminal
         │      └─ SSE tool_call deltas ────► accumulated by index
         │
         ├─ append assistant message ───────────────────────► audit: assistant_message
@@ -144,12 +146,24 @@ ends. This bounds runaway tool loops.
 
 ### Wait indicator
 
-Each `stream_chat` call is wrapped in a `Spinner` (`agent.py:206`): a daemon
-thread that animates an ASCII frame on the current line until the first content
-delta arrives, or until the stream ends if the model only emits tool calls. The
-thread writes directly to `stdout` and is always stopped (and joined) in a
-`finally` block before anything else is printed, so it cannot interleave with
-the renderer. A short grace period suppresses the spinner for fast responses.
+Each `stream_chat` call is wrapped in a `Spinner` (`agent.py:278`): a daemon
+thread that animates an ASCII frame on the current line until the renderer
+produces its first output, or until the stream ends if the model only emits tool
+calls. The thread writes directly to `stdout` and is always stopped (and joined)
+in a `finally` block before anything else is printed, so it cannot interleave
+with the renderer. A short grace period suppresses the spinner for fast responses.
+
+### Reply rendering
+
+Content deltas are fed to `MarkdownStream` (`agent.py:373`), which emits
+`FormattedText` fragments through the same `print_formatted_text` path as `say`.
+It is an incremental state machine: block prefixes (headings, lists, tasks,
+quotes, rules, fences, tables) are recognized at line starts, while inline spans
+and partial markers are held only until they resolve, so paragraphs keep
+streaming. Fenced code is highlighted per line through Pygments when available
+(`pygments` is a soft dependency). `finalize` flushes unresolved spans and
+guarantees a trailing newline. With `--no-markdown`, deltas go straight to
+`stream_write`.
 
 ### Interruption
 
@@ -417,6 +431,7 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 | Native `tool_calls` only | Standard protocol; no brittle text parsing | Requires server-side function-calling support |
 | PLAN mode default | The first action of a fresh session can never modify the host | One extra Tab before editing |
 | Exact-match command allowlist | Auditable and conservative; no persisted policy to drift | Every command is re-approved per request (config-file allowlist planned) |
+| Internal streaming markdown renderer | No new parsing dependency; keeps token-by-token prose and the prompt_toolkit output path | Hand-rolled subset: no nested emphasis, per-line code lexing, tables buffered |
 | Workspace path boundary | Prevents accidental reads/writes outside the project | Requires `--allow-outside` for legitimate external paths |
 | Full history, no compaction | Simple and lossless; local models often have large contexts | Very long sessions can exceed the model's context window |
 | JSONL audit log | Grep-able, append-only, crash-safe with per-event flush | Unbounded growth; external rotation needed |
@@ -429,6 +444,9 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 - No retry/backoff on transient network failures.
 - `fetch_url` does not block private/link-local addresses (the agent is intended
   for trusted LANs).
+- Markdown rendering is a pragmatic subset: emphasis cannot be nested, fenced
+  code is lexed line by line (multiline constructs may not highlight), and
+  tables are emitted only after the block ends.
 - The approval gate is specific to `run_command`; other tools that might deserve
   approval (e.g. `write_file`) are gated only by mode.
 - No committed automated test suite; the release workflow smoke-tests the

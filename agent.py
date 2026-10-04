@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -33,6 +34,17 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
+
+PYGMENTS_AVAILABLE = False
+try:
+    from pygments import lex
+    from pygments.lexers import get_lexer_by_name
+    from pygments.token import Token
+    from pygments.util import ClassNotFound
+
+    PYGMENTS_AVAILABLE = True
+except ImportError:
+    pass
 
 APP_NAME = "BA"
 VERSION = "0.2.0"
@@ -70,6 +82,37 @@ STYLE = Style.from_dict(
         "info": "bold #5fd7ff",
         "approval": "#ffd75f",
         "approval.selected": "bg:#ffd75f #1c1c1c bold",
+        "md.heading1": "bold #87d7ff",
+        "md.heading2": "bold #5fd7ff",
+        "md.heading3": "bold #5fafaf",
+        "md.heading4": "bold #5faf87",
+        "md.heading5": "#5fafaf",
+        "md.heading6": "#6c6c6c",
+        "md.bold": "bold",
+        "md.italic": "italic",
+        "md.bolditalic": "bold italic",
+        "md.strike": "strike",
+        "md.code": "bg:#303030 #e4e4e4",
+        "md.codeblock": "#c8c8c8",
+        "md.code.border": "#585858",
+        "md.code.keyword": "bold #ff87d7",
+        "md.code.string": "#87d787",
+        "md.code.comment": "#6c6c6c italic",
+        "md.code.number": "#87afff",
+        "md.code.function": "#5fd7ff",
+        "md.code.class": "bold #ffd75f",
+        "md.code.operator": "#d7d7af",
+        "md.code.punctuation": "#b0b0b0",
+        "md.quote": "#9e9e9e italic",
+        "md.quote.border": "#585858",
+        "md.list": "#ffaf5f",
+        "md.task": "#ffd75f",
+        "md.link": "underline #5fafff",
+        "md.link.url": "#6c6c6c",
+        "md.hr": "#585858",
+        "md.table": "#d0d0d0",
+        "md.table.header": "bold #ffd75f",
+        "md.table.border": "#585858",
     }
 )
 
@@ -104,6 +147,7 @@ class Config:
     system_prompt: str | None = None
     project_instructions: str | None = None
     project_instructions_path: Path | None = None
+    markdown: bool = True
 
 
 def parse_args(argv: list[str] | None = None) -> Config:
@@ -151,6 +195,11 @@ def parse_args(argv: list[str] | None = None) -> Config:
     )
     parser.add_argument("--no-log", action="store_true", help="Disable audit logging")
     parser.add_argument(
+        "--no-markdown",
+        action="store_true",
+        help="Render assistant replies as plain text (no markdown styling)",
+    )
+    parser.add_argument(
         "--allow-outside",
         action="store_true",
         help="Allow file tools to access paths outside the workspace",
@@ -172,6 +221,7 @@ def parse_args(argv: list[str] | None = None) -> Config:
         log_enabled=not ns.no_log,
         allow_outside=ns.allow_outside,
         system_prompt=ns.system_prompt,
+        markdown=not ns.no_markdown,
     )
 
 
@@ -263,6 +313,422 @@ class Spinner:
         self._thread = None
         sys.stdout.write("\r  \r")
         sys.stdout.flush()
+
+
+RE_HEADING = re.compile(r"^(#{1,6})[ \t]+")
+RE_FENCE = re.compile(r"^(`{3,}|~{3,})(.*)")
+RE_HR = re.compile(r"^(-{3,}|\*{3,}|_{3,})[ \t]*$")
+RE_QUOTE = re.compile(r"^>[ \t]?")
+RE_TASK = re.compile(r"^( *)[-*+][ \t]+\[([ xX])\][ \t]+")
+RE_ULIST = re.compile(r"^( *)[-*+][ \t]+")
+RE_OLIST = re.compile(r"^( *)(\d{1,9})[.)][ \t]+")
+RE_TABLE = re.compile(r"^ {0,3}\|")
+RE_INLINE = re.compile(r"[*_`~\[!\\\n]")
+RE_POTENTIAL_PREFIX = re.compile(
+    r"^(?:"
+    r"#{0,6}"
+    r"|[-*+>|]"
+    r"|-{2}"
+    r"|\*{2}"
+    r"|_{1,2}"
+    r"|`{1,2}"
+    r"|~{1,2}"
+    r"|\d{1,9}[.)]?"
+    r"|[-*+][ \t]+"
+    r"|[-*+][ \t]+\[[ xX]?\]?"
+    r")$"
+)
+
+_TOKEN_STYLE_CACHE: list[tuple[Any, str]] | None = None
+
+
+def _token_style(token: Any) -> str:
+    global _TOKEN_STYLE_CACHE
+    if _TOKEN_STYLE_CACHE is None:
+        _TOKEN_STYLE_CACHE = [
+            (Token.Comment, "class:md.code.comment"),
+            (Token.Keyword, "class:md.code.keyword"),
+            (Token.Name.Function, "class:md.code.function"),
+            (Token.Name.Class, "class:md.code.class"),
+            (Token.String, "class:md.code.string"),
+            (Token.Number, "class:md.code.number"),
+            (Token.Operator, "class:md.code.operator"),
+            (Token.Punctuation, "class:md.code.punctuation"),
+        ]
+    for prefix, style in _TOKEN_STYLE_CACHE:
+        if token in prefix:
+            return style
+    return "class:md.codeblock"
+
+
+def _make_lexer(lang: str) -> Any:
+    if not PYGMENTS_AVAILABLE or not lang:
+        return None
+    try:
+        return get_lexer_by_name(lang, stripnl=False, ensurenl=False)
+    except ClassNotFound:
+        return None
+
+
+class MarkdownStream:
+    """Incremental markdown renderer for streamed assistant text.
+
+    ``emit`` receives FormattedText-compatible fragments. Plain text is emitted
+    as soon as it is unambiguous; only partial markers and unresolved spans are
+    held back, so paragraphs keep streaming live. ``feed`` is called for every
+    SSE delta and ``finalize`` once the stream ends.
+    """
+
+    def __init__(self, emit: Callable[[list[tuple[str, str]]], None], width: int | None = None):
+        self.emit = emit
+        self.width = width or shutil.get_terminal_size((80, 24)).columns
+        self.buffer = ""
+        self.at_line_start = True
+        self.line_style = ""
+        self.fence: str | None = None
+        self.fence_lang = ""
+        self.table_lines: list[str] = []
+        self.in_table = False
+        self._lexer: Any = None
+        self.wrote = False
+        self.ended_with_newline = True
+
+    def feed(self, text: str) -> None:
+        if text:
+            self.buffer += text
+            self._process(final=False)
+
+    def finalize(self) -> None:
+        self._process(final=True)
+        if self.buffer:
+            self._emit_text(self.buffer)
+            self.buffer = ""
+        if self.in_table:
+            self._render_table()
+            self.in_table = False
+        self.fence = None
+        if self.wrote and not self.ended_with_newline:
+            self._write([("", "\n")])
+
+    # -- internals ----------------------------------------------------------
+
+    def _write(self, fragments: list[tuple[str, str]]) -> None:
+        if not fragments:
+            return
+        self.wrote = True
+        self.ended_with_newline = fragments[-1][1].endswith("\n")
+        self.emit(fragments)
+
+    def _emit_text(self, text: str, style: str | None = None) -> None:
+        if text:
+            self._write([(self.line_style if style is None else style, text)])
+
+    def _process(self, final: bool) -> None:
+        while True:
+            if self.fence is not None:
+                if not self._process_fence(final):
+                    return
+                continue
+            if self.in_table:
+                if not self._process_table(final):
+                    return
+                continue
+            if self.at_line_start:
+                if not self._consume_line_prefix(final):
+                    return
+                continue
+            if not self._process_inline(final):
+                return
+
+    def _consume_line_prefix(self, final: bool) -> bool:
+        if not self.buffer:
+            if not final:
+                return False
+            self.at_line_start = False
+            return True
+        stripped = self.buffer.lstrip(" ")
+        fence_match = RE_FENCE.match(stripped)
+        if fence_match:
+            newline = self.buffer.find("\n")
+            if newline == -1 and not final:
+                return False
+            self.buffer = self.buffer[newline + 1 :] if newline != -1 else ""
+            self.fence = fence_match.group(1)
+            info = fence_match.group(2).strip()
+            self.fence_lang = info.split()[0] if info else ""
+            self._lexer = _make_lexer(self.fence_lang)
+            label = f" {self.fence_lang}" if self.fence_lang else ""
+            self._write([("class:md.code.border", f"┌─{label}\n")])
+            self.at_line_start = True
+            return True
+        if self._at_potential_prefix(final):
+            return False
+        if RE_TABLE.match(stripped):
+            self.in_table = True
+            self.table_lines = []
+            return True
+        heading = RE_HEADING.match(stripped)
+        if heading:
+            self.buffer = stripped[heading.end() :]
+            self.line_style = f"class:md.heading{len(heading.group(1))}"
+            self.at_line_start = False
+            return True
+        newline = self.buffer.find("\n")
+        first_line = self.buffer[:newline] if newline != -1 else self.buffer
+        if RE_HR.match(first_line) and (newline != -1 or final):
+            self.buffer = self.buffer[newline + 1 :] if newline != -1 else ""
+            self._write([("class:md.hr", "─" * min(self.width, 40) + "\n")])
+            self.at_line_start = True
+            return True
+        if newline == -1 and not final and re.fullmatch(r" {0,3}[-*_]+[ \t]*", self.buffer):
+            return False
+        quote = RE_QUOTE.match(stripped)
+        if quote:
+            self.buffer = stripped[quote.end() :]
+            self.line_style = "class:md.quote"
+            self._write([("class:md.quote.border", "│ ")])
+            self.at_line_start = False
+            return True
+        task = RE_TASK.match(stripped)
+        if task:
+            indent, mark = task.group(1), task.group(2)
+            self.buffer = stripped[task.end() :]
+            box = "☑ " if mark in "xX" else "☐ "
+            self._write([("class:md.list", indent), ("class:md.task", box)])
+            self.line_style = ""
+            self.at_line_start = False
+            return True
+        ordered = RE_OLIST.match(stripped)
+        if ordered:
+            self.buffer = stripped[ordered.end() :]
+            self._write([("class:md.list", f"{ordered.group(1)}{ordered.group(2)}. ")])
+            self.line_style = ""
+            self.at_line_start = False
+            return True
+        unordered = RE_ULIST.match(stripped)
+        if unordered:
+            self.buffer = stripped[unordered.end() :]
+            self._write([("class:md.list", f"{unordered.group(1)}• ")])
+            self.line_style = ""
+            self.at_line_start = False
+            return True
+        self.at_line_start = False
+        return True
+
+    def _at_potential_prefix(self, final: bool) -> bool:
+        if final:
+            return False
+        stripped = self.buffer.lstrip(" ")
+        if not stripped:
+            return True
+        return bool(RE_POTENTIAL_PREFIX.match(stripped))
+
+    def _process_inline(self, final: bool) -> bool:
+        if not self.buffer:
+            return False
+        match = RE_INLINE.search(self.buffer)
+        if match is None:
+            self._emit_text(self.buffer)
+            self.buffer = ""
+            return False
+        if match.start() > 0:
+            self._emit_text(self.buffer[: match.start()])
+            self.buffer = self.buffer[match.start() :]
+        char = self.buffer[0]
+        if char == "\n":
+            self._write([("", "\n")])
+            self.buffer = self.buffer[1:]
+            self.at_line_start = True
+            self.line_style = ""
+            return True
+        if char == "\\":
+            if len(self.buffer) < 2:
+                if not final:
+                    return False
+                self._emit_text("\\")
+                self.buffer = ""
+                return True
+            self._emit_text(self.buffer[1])
+            self.buffer = self.buffer[2:]
+            return True
+        if char == "`":
+            return self._inline_code(final)
+        if char in "*_~":
+            return self._inline_emphasis(final, char)
+        if char == "!":
+            if len(self.buffer) >= 2 and self.buffer[1] == "[":
+                return self._inline_link(final)
+            if len(self.buffer) < 2 and not final:
+                return False
+            self._emit_text("!")
+            self.buffer = self.buffer[1:]
+            return True
+        if char == "[":
+            return self._inline_link(final)
+        return False
+
+    def _inline_code(self, final: bool) -> bool:
+        run = len(self.buffer) - len(self.buffer.lstrip("`"))
+        marker = "`" * run
+        line_end = self.buffer.find("\n")
+        limit = line_end if line_end != -1 else len(self.buffer)
+        closer = self.buffer.find(marker, run, limit)
+        if closer == -1:
+            if line_end == -1 and not final:
+                return False
+            self._emit_text(marker)
+            self.buffer = self.buffer[run:]
+            return True
+        self._write([("class:md.code", self.buffer[run:closer])])
+        self.buffer = self.buffer[closer + run :]
+        return True
+
+    def _inline_emphasis(self, final: bool, char: str) -> bool:
+        run = 0
+        while run < len(self.buffer) and self.buffer[run] == char:
+            run += 1
+        if char == "~":
+            if run < 2:
+                if run == len(self.buffer) and not final:
+                    return False
+                self._emit_text("~")
+                self.buffer = self.buffer[1:]
+                return True
+            marker = "~~"
+            style = "class:md.strike"
+        else:
+            length = min(run, 3)
+            marker = char * length
+            style = {
+                1: "class:md.italic",
+                2: "class:md.bold",
+                3: "class:md.bolditalic",
+            }[length]
+        line_end = self.buffer.find("\n")
+        limit = line_end if line_end != -1 else len(self.buffer)
+        closer = self.buffer.find(marker, run, limit)
+        if closer == -1:
+            if line_end == -1 and not final:
+                return False
+            self._emit_text(marker)
+            self.buffer = self.buffer[len(marker) :]
+            return True
+        if char == "_":
+            before = self.buffer[run - 1] if run > 0 else ""
+            after_at = closer + len(marker)
+            after = self.buffer[after_at] if after_at < len(self.buffer) else ""
+            if before.isalnum() or after.isalnum():
+                self._emit_text(marker)
+                self.buffer = self.buffer[len(marker) :]
+                return True
+        self._write([(style, self.buffer[run:closer])])
+        self.buffer = self.buffer[closer + len(marker) :]
+        return True
+
+    def _inline_link(self, final: bool) -> bool:
+        image = self.buffer.startswith("![")
+        start = 2 if image else 1
+        line_end = self.buffer.find("\n")
+        limit = line_end if line_end != -1 else len(self.buffer)
+        bracket = self.buffer.find("](", start)
+        if bracket != -1 and bracket < limit:
+            paren = self.buffer.find(")", bracket + 2)
+            if paren != -1 and paren < limit:
+                text = self.buffer[start:bracket]
+                url = self.buffer[bracket + 2 : paren]
+                if text:
+                    self._write([("class:md.link", text), ("class:md.link.url", f" ({url})")])
+                else:
+                    self._write([("class:md.link", url)])
+                self.buffer = self.buffer[paren + 1 :]
+                return True
+        if line_end == -1 and not final:
+            return False
+        self._emit_text("!" if image else "[")
+        self.buffer = self.buffer[1:]
+        return True
+
+    def _process_fence(self, final: bool) -> bool:
+        if "\n" not in self.buffer:
+            if not final:
+                return False
+            if self.buffer:
+                self._write_code_line(self.buffer)
+                self.buffer = ""
+            self._write([("class:md.code.border", "└─\n")])
+            self.fence = None
+            self._lexer = None
+            self.at_line_start = True
+            return True
+        line, self.buffer = self.buffer.split("\n", 1)
+        if line.strip().startswith(self.fence):
+            self._write([("class:md.code.border", "└─\n")])
+            self.fence = None
+            self._lexer = None
+            self.at_line_start = True
+            return True
+        self._write_code_line(line)
+        return True
+
+    def _write_code_line(self, line: str) -> None:
+        fragments: list[tuple[str, str]] = [("class:md.code.border", "│ ")]
+        if self._lexer is not None:
+            fragments.extend((_token_style(token), value) for token, value in lex(line, self._lexer))
+        else:
+            fragments.append(("class:md.codeblock", line))
+        fragments.append(("", "\n"))
+        self._write(fragments)
+
+    def _process_table(self, final: bool) -> bool:
+        while "\n" in self.buffer:
+            line, self.buffer = self.buffer.split("\n", 1)
+            if line.lstrip().startswith("|"):
+                self.table_lines.append(line)
+                continue
+            self._render_table()
+            self.in_table = False
+            self.buffer = line + "\n" + self.buffer
+            return True
+        if final:
+            if self.buffer and self.buffer.lstrip().startswith("|"):
+                self.table_lines.append(self.buffer)
+                self.buffer = ""
+            self._render_table()
+            self.in_table = False
+            return True
+        return False
+
+    def _render_table(self) -> None:
+        rows: list[list[str]] = []
+        for raw in self.table_lines:
+            cells = [cell.strip() for cell in raw.strip().strip("|").split("|")]
+            if cells and all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells if cell):
+                continue
+            rows.append(cells)
+        self.table_lines = []
+        if not rows:
+            return
+        columns = max(len(row) for row in rows)
+        for row in rows:
+            row.extend([""] * (columns - len(row)))
+        cap = max(8, self.width // max(1, columns) - 3)
+        widths = [max(3, min(max(len(row[i]) for row in rows), cap)) for i in range(columns)]
+
+        def rule(left: str, mid: str, right: str) -> str:
+            return left + mid.join("─" * (width + 2) for width in widths) + right
+
+        self._write([("class:md.table.border", rule("┌", "┬", "┐") + "\n")])
+        for index, row in enumerate(rows):
+            fragments: list[tuple[str, str]] = [("class:md.table.border", "│")]
+            for cell, width in zip(row, widths):
+                style = "class:md.table.header" if index == 0 else "class:md.table"
+                fragments.append((style, f" {cell[:width].ljust(width)} "))
+                fragments.append(("class:md.table.border", "│"))
+            fragments.append(("", "\n"))
+            self._write(fragments)
+            if index == 0 and len(rows) > 1:
+                self._write([("class:md.table.border", rule("├", "┼", "┤") + "\n")])
+        self._write([("class:md.table.border", rule("└", "┴", "┘") + "\n")])
 
 
 def cap(text: str, limit: int = TOOL_RESULT_LIMIT) -> str:
@@ -1032,10 +1498,24 @@ def run_turn(app: App, user_text: str) -> None:
     for _ in range(app.config.max_steps):
         say(f"\n{APP_NAME} [{app.mode.value}]> ", "class:agent")
         spinner = Spinner()
+        renderer: MarkdownStream | None = None
 
-        def on_delta(text: str, spinner: Spinner = spinner) -> None:
-            spinner.stop()
-            stream_write(text)
+        if app.config.markdown:
+
+            def emit(fragments: list[tuple[str, str]], spinner: Spinner = spinner) -> None:
+                spinner.stop()
+                pt_print(FormattedText(fragments), end="", flush=True, style=STYLE)
+
+            renderer = MarkdownStream(emit)
+
+            def on_delta(text: str, renderer: MarkdownStream = renderer) -> None:
+                renderer.feed(text)
+
+        else:
+
+            def on_delta(text: str, spinner: Spinner = spinner) -> None:
+                spinner.stop()
+                stream_write(text)
 
         spinner.start()
         try:
@@ -1046,7 +1526,12 @@ def run_turn(app: App, user_text: str) -> None:
             return
         finally:
             spinner.stop()
-        stream_write("\n")
+        if renderer is not None:
+            renderer.finalize()
+            if not renderer.wrote:
+                stream_write("\n")
+        else:
+            stream_write("\n")
         assistant = result.message
         app.messages.append(assistant)
         app.log.log(

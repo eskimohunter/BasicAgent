@@ -1,6 +1,6 @@
 # To Do
 
-- [ ] Render markdown in the terminal (https://github.com/Praneeth-Gandodi/markrender)
+- [x] Render markdown in the terminal
 - [x] Remove always allow command option – default to y
 - [ ] Remove y/n etc from command history?
 - [ ] For a command run, get an llm summary of the effects of that command
@@ -11,3 +11,4 @@
 - [ ] Look at Opencode base prompt + plan/build mode
 - [x] Logs in application directory not project
 - [x] Refused to read ‘binary file’ .xml
+- [ ] Display context usage in the toolbar

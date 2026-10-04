@@ -11,7 +11,7 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
-            (pkgs.python3.withPackages (ps: [ ps.prompt-toolkit ]))
+            (pkgs.python3.withPackages (ps: [ ps.prompt-toolkit ps.pygments ]))
             pkgs.ruff
           ];
         };
