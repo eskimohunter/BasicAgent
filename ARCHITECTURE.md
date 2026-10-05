@@ -91,20 +91,21 @@ such as `AGENT_BASE_URL`.
 
 ## 4. Startup
 
-`main` (`agent.py:992`):
+`main` (`agent.py:1814`):
 
-1. Parse configuration and load workspace project instructions (`Agents.md`,
+1. Parse configuration, then clear the terminal.
+2. Load workspace project instructions (`Agents.md`,
    any capitalization, capped at 32 KB) into the system prompt.
-2. Unless `--context-window`/`AGENT_CONTEXT_WINDOW` is set, probe the server for
+3. Unless `--context-window`/`AGENT_CONTEXT_WINDOW` is set, probe the server for
    the context window (`/props`, then `/models`); a 5 s best-effort attempt that
    falls back to unknown.
-3. Open the audit log (unless disabled) and write `session_start` with a
+4. Open the audit log (unless disabled) and write `session_start` with a
    redacted API key and the resolved context window.
-4. Create the `PromptSession` with the shared style sheet, the `App`, and the
+5. Create the `PromptSession` with the shared style sheet, the `App`, and the
    Tab key binding.
-5. Print the banner (endpoint, model, workspace, log path, context window,
+6. Print the banner (endpoint, model, workspace, log path, context window,
    current mode).
-6. Enter the REPL loop.
+7. Enter the REPL loop.
 
 The REPL loop calls `session.prompt(...)` with the Tab binding and a
 `bottom_toolbar` callable. `Ctrl+C` at the prompt raises `KeyboardInterrupt` and

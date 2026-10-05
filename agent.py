@@ -33,6 +33,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.styles import Style
 
 PYGMENTS_AVAILABLE = False
@@ -1812,6 +1813,7 @@ def print_banner(app: App) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     config = parse_args(argv)
+    clear()
     load_project_instructions(config)
     if config.context_window <= 0:
         config.context_window, config.context_window_source = probe_context_window(config)
