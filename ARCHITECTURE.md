@@ -103,8 +103,8 @@ such as `AGENT_BASE_URL`.
    redacted API key and the resolved context window.
 5. Create the `PromptSession` with the shared style sheet, the `App`, and the
    Tab key binding.
-6. Print the banner (endpoint, model, workspace, log path, context window,
-   current mode).
+6. Print the ASCII-art `Basic Agent` banner with `Version:`, then the endpoint,
+   model and workspace.
 7. Enter the REPL loop.
 
 The REPL loop calls `session.prompt(...)` with the Tab binding and a

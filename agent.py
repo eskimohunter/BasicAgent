@@ -1730,16 +1730,24 @@ def build_key_bindings(app: App) -> KeyBindings:
     return bindings
 
 
+BANNER = (
+    " _____           _",
+    "|  __ \\         / \\",
+    "| |__) |       / _ \\",
+    "|  __ <       / ___ \\",
+    "| |__) |     / /   \\ \\",
+    "|_____/ asic \\/     \\/ gent",
+)
+
+
 def print_banner(app: App) -> None:
-    say(f"{APP_NAME} {VERSION}", "class:info")
+    for line in BANNER:
+        say(line, "class:info")
+    say(f"Version: {VERSION}", "class:info")
+    say("")
     say(f"  model:     {app.config.model}")
     say(f"  endpoint:  {app.config.base_url}")
     say(f"  workspace: {app.config.workspace}")
-    say(f"  log:       {app.log.path if app.log.path else 'disabled'}")
-    say(f"  agents:    {app.config.project_instructions_path or 'none'}")
-    context = app.config.context_window if app.config.context_window else "unknown"
-    say(f"  context:   {context}")
-    say("  mode:      PLAN (read-only) - press Tab to switch to BUILD")
     say("  /help for commands")
 
 
