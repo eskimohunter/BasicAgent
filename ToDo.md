@@ -2,7 +2,7 @@
 
 - [x] Render markdown in the terminal
 - [x] Remove always allow command option – default to y
-- [ ] Remove y/n etc from command history?
+- [x] Remove y/n etc from command history?
 - [ ] For a command run, get an llm summary of the effects of that command
 - [x] Shorten BasicAgent to BA
 - [x] Spinner when BA turn but no response yet
@@ -12,3 +12,4 @@
 - [x] Logs in application directory not project
 - [x] Refused to read ‘binary file’ .xml
 - [x] Display context usage in the toolbar
+- [x] Bump Python to 3.14

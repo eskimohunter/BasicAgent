@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PBS_RELEASE: "20260924"
-  PYTHON_VERSION: "3.13.15"
+  PBS_RELEASE: "20261003"
+  PYTHON_VERSION: "3.14.8"
   PBS_TRIPLE: "x86_64-pc-windows-msvc"
   PBS_FLAVOR: "install_only_stripped"
 

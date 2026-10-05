@@ -478,8 +478,8 @@ artifact only). There is no separate local packaging step.
 
 ```
 tag vX.Y.Z ──► validate tag == VERSION in agent.py
-           ──► download python-build-standalone 20260924
-               (cpython-3.13.15 x86_64-pc-windows-msvc install_only_stripped)
+           ──► download python-build-standalone 20261003
+               (cpython-3.14.8 x86_64-pc-windows-msvc install_only_stripped)
            ──► verify SHA-256 against the release's SHA256SUMS asset
            ──► extract (python/) ──► python -m pip install -r requirements.txt
            ──► copy agent.py, README.md, ba.cmd

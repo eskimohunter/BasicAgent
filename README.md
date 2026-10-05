@@ -76,7 +76,7 @@ Use Windows Terminal for the best rendering.
 
 Every `v*` tag publishes a self-contained Windows x64 bundle on the
 [Releases page](https://github.com/eskimohunter/BasicAgent/releases). It includes
-a stripped CPython 3.13 from
+a stripped CPython 3.14 from
 [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 and `prompt-toolkit`; nothing needs to be installed.
 
