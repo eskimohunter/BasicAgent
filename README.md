@@ -35,6 +35,8 @@ BA [plan]> This project uses a Nix flake...
   file edits and shell commands.
 - **Approval gate** — every shell command is shown to you first, with Yes/No
   buttons (`←`/`→` then `Enter`) before it runs.
+- **Command summaries** — before approval, a second (optionally different) model
+  explains each shell command in one line for a junior developer.
 - **Audit log** — every message, tool call, approval and result is appended to a
   JSONL file for later review.
 - **Small tool surface** — `read_file`, `list_dir`, `grep`, `fetch_url`,
@@ -198,8 +200,19 @@ Precedence: CLI argument > environment variable > default.
 | `--base-url` | `AGENT_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8080/v1` | API root |
 | `--api-key` | `AGENT_API_KEY`, `OPENAI_API_KEY` | `none` | Bearer token |
 | `--model` | `AGENT_MODEL`, `OPENAI_MODEL` | `local-model` | Model name |
+| `--summary-base-url` | `AGENT_SUMMARY_BASE_URL` | `--base-url` | API root for command summaries |
+| `--summary-api-key` | `AGENT_SUMMARY_API_KEY` | `--api-key` | Bearer token for command summaries |
+| `--summary-model` | `AGENT_SUMMARY_MODEL` | `--model` | Model for command summaries |
 | `--workspace` | — | current directory | Workspace root for tools and shell |
 | — | `AGENT_CONTEXT_WINDOW` | probe | Context window in tokens; `0` probes `/props` then `/models` |
+
+Before a shell command is shown in the approval prompt, BA asks the summary
+model for a one-line explanation for a junior developer and prints it under
+`-> run_command <command>`. Each summary setting falls back to the corresponding
+main setting, so no extra configuration is required. Summaries are best-effort:
+if the call fails, BA prints the raw command and disables summarisation for the
+rest of the session. The command text is sent to the summary endpoint, which
+may differ from your main endpoint.
 
 ## Audit log
 
@@ -212,6 +225,7 @@ regardless of the terminal's working directory. One JSON object per line:
 | `session_start` | version, base URL, model, workspace, mode, redacted API key, project instructions path/size, context window/source |
 | `user_message` | user input |
 | `assistant_message` | assistant text and any tool calls |
+| `command_summary` | command, one-line summary, source (`model` / `cache` / `fallback`) |
 | `tool_call` | tool name, full arguments, call id |
 | `approval` | command and decision (`allow` / `deny`) |
 | `tool_result` | call id, success flag, capped output |
@@ -222,10 +236,12 @@ regardless of the terminal's working directory. One JSON object per line:
 ## Security notes
 
 - The API key is never logged; it is recorded as `[redacted]`.
+- Shell commands are sent to the summary endpoint (defaults to the main
+  endpoint) to generate the one-line explanation.
 - Shell commands are displayed verbatim before execution and never rewritten.
 - The command allowlist (config-file support planned) is exact-match only; until
   then every command is approved individually.
-- File tools are confined to the workspace by default.
+- File tools are confined to the workspace.
 - Tool output sent to the model is truncated to protect the context window; the
   truncation marker is explicit.
 

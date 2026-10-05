@@ -61,6 +61,14 @@ FETCH_MAX_BYTES = 100_000
 REQUEST_TIMEOUT = 120.0
 COMMAND_TIMEOUT = 60
 MAX_STEPS = 25
+SUMMARY_TIMEOUT = 5.0
+SUMMARY_PROMPT = (
+    "You explain shell commands to a junior developer. Reply with exactly one "
+    "sentence describing what the command does and any important "
+    "side effects. No markdown, no code formatting, no preamble. "
+    "don't just repeat the command; explain it in plain English. "
+    "If the command is dangerous make that clear"
+)
 INSTRUCTIONS_MAX_BYTES = 32_000
 DEFAULT_EXCLUDES = {
     ".git",
@@ -142,6 +150,10 @@ class Config:
     base_url: str = DEFAULT_BASE_URL
     api_key: str = "none"
     model: str = "local-model"
+    summary_base_url: str = DEFAULT_BASE_URL
+    summary_api_key: str = "none"
+    summary_model: str = "local-model"
+    summary_model_defined: bool = False
     workspace: Path = field(default_factory=Path.cwd)
     project_instructions: str | None = None
     project_instructions_path: Path | None = None
@@ -175,6 +187,21 @@ def parse_args(argv: list[str] | None = None) -> Config:
         or "local-model",
         help="Model name to request",
     )
+    parser.add_argument(
+        "--summary-base-url",
+        default=os.environ.get("AGENT_SUMMARY_BASE_URL"),
+        help="API root for command summaries (default: --base-url)",
+    )
+    parser.add_argument(
+        "--summary-api-key",
+        default=os.environ.get("AGENT_SUMMARY_API_KEY"),
+        help="Bearer token for command summaries (default: --api-key)",
+    )
+    parser.add_argument(
+        "--summary-model",
+        default=os.environ.get("AGENT_SUMMARY_MODEL"),
+        help="Model for command summaries (default: --model)",
+    )
     parser.add_argument("--workspace", default=".", help="Workspace root directory")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     ns = parser.parse_args(argv)
@@ -189,6 +216,10 @@ def parse_args(argv: list[str] | None = None) -> Config:
         base_url=ns.base_url.rstrip("/"),
         api_key=ns.api_key,
         model=ns.model,
+        summary_base_url=(ns.summary_base_url or ns.base_url).rstrip("/"),
+        summary_api_key=ns.summary_api_key or ns.api_key,
+        summary_model=ns.summary_model or ns.model,
+        summary_model_defined=bool(ns.summary_model),
         workspace=Path(ns.workspace).expanduser().resolve(),
         context_window=context_window,
         context_window_source="env" if context_window > 0 else "unknown",
@@ -1455,7 +1486,7 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
 # ---------------------------------------------------------------------------
 
 
-def summarize_args(call: dict[str, Any]) -> str:
+def summarise_args(call: dict[str, Any]) -> str:
     raw = call["function"].get("arguments") or ""
     try:
         args = json.loads(raw)
@@ -1468,6 +1499,74 @@ def summarize_args(call: dict[str, Any]) -> str:
     if "path" in args:
         return str(args["path"])
     return json.dumps(args, ensure_ascii=False)[:200]
+
+
+def summarise_command(config: Config, command: str) -> str | None:
+    """Best-effort one-line explanation of a shell command; None on failure."""
+    payload = {
+        "model": config.summary_model,
+        "messages": [
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": f"Command (cwd: {config.workspace}):\n{command}"},
+        ],
+        "temperature": 0,
+        "stream": False,
+    }
+    request = urllib.request.Request(
+        f"{config.summary_base_url}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {config.summary_api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=SUMMARY_TIMEOUT) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+        content = data["choices"][0]["message"]["content"]
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    if not isinstance(content, str):
+        return None
+    summary = " ".join(content.split())
+    return summary or None
+
+
+def command_from_call(call: dict[str, Any]) -> str:
+    raw = call["function"].get("arguments") or ""
+    try:
+        args = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(args, dict):
+        return ""
+    return str(args.get("command", ""))
+
+
+def describe_command(app: App, command: str) -> str | None:
+    """Cached, best-effort command summary; disables summarisation for the session on failure."""
+    if command in app.summaries:
+        summary = app.summaries[command]
+        app.log.log("command_summary", command=command, summary=summary, source="cache")
+        return summary
+    if app.summary_disabled:
+        app.log.log("command_summary", command=command, summary=None, source="fallback")
+        return None
+    spinner = Spinner()
+    spinner.start()
+    try:
+        summary = summarise_command(app.config, command)
+    finally:
+        spinner.stop()
+    if summary:
+        app.summaries[command] = summary
+        source = "model"
+    else:
+        app.summary_disabled = True
+        source = "fallback"
+    app.log.log("command_summary", command=command, summary=summary, source=source)
+    return summary
 
 
 def execute_tool(app: App, call: dict[str, Any]) -> str:
@@ -1566,7 +1665,15 @@ def run_turn(app: App, user_text: str) -> None:
         if result.interrupted or not assistant.get("tool_calls"):
             return
         for call in assistant["tool_calls"]:
-            say(f"  -> {call['function']['name']} {summarize_args(call)}", "class:tool")
+            name = call["function"]["name"]
+            if name == "run_command":
+                command = command_from_call(call)
+                say(f"  -> run_command {command}", "class:tool")
+                summary = describe_command(app, command) if command else None
+                if summary:
+                    say(f"     {summary}", "class:tool.result")
+            else:
+                say(f"  -> {name} {summarise_args(call)}", "class:tool")
             content = execute_tool(app, call)
             app.messages.append(
                 {"role": "tool", "tool_call_id": call["id"], "content": content}
@@ -1642,6 +1749,8 @@ class App:
         self.stream_usage = True
         self.exact_context = 0
         self.exact_context_at = -1
+        self.summaries: dict[str, str] = {}
+        self.summary_disabled = False
 
     def tool_allowed(self, tool: Tool) -> bool:
         return not (tool.writes and self.mode is Mode.PLAN)
@@ -1745,7 +1854,10 @@ def print_banner(app: App) -> None:
         say(line, "class:info")
     say(f"Version: {VERSION}", "class:info")
     say("")
-    say(f"  model:     {app.config.model}")
+    model = app.config.model
+    if app.config.summary_model_defined:
+        model += f" ({app.config.summary_model})"
+    say(f"  model:     {model}")
     say(f"  endpoint:  {app.config.base_url}")
     say(f"  workspace: {app.config.workspace}")
     say("  /help for commands")

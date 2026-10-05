@@ -53,7 +53,8 @@ and refer to the current revision.
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |
 | `finalize_tool_calls` | `agent.py:662` | Merge streamed tool-call fragments |
 | `stream_chat` | `agent.py:679` | HTTP POST + SSE parsing + live rendering |
-| `summarize_args` | `agent.py:778` | One-line tool-call display |
+| `summarise_args` | `agent.py:778` | One-line tool-call display |
+| `summarise_command` / `describe_command` | `agent.py:1501-1560` | One-line command explanation via the summary model, cached per session |
 | `execute_tool` | `agent.py:793` | Dispatch pipeline: validate → guard → approve → run → log |
 | `run_turn` | `agent.py:850` | One user turn: stream → tools → repeat |
 | `handle_command` | `agent.py:892` | Slash commands |
@@ -104,8 +105,9 @@ such as `AGENT_BASE_URL`.
 5. Create the `PromptSession` with the shared style sheet, the `App`, and the
    Tab key binding.
 6. Print the ASCII-art `Basic Agent` banner with `Version:`, then the endpoint,
-   model and workspace.
-7. Enter the REPL loop.
+   model (with the summary model in brackets when one is set) and workspace.
+7. Render `Instructions.md` next to `agent.py` as markdown, if present.
+8. Enter the REPL loop.
 
 The REPL loop calls `session.prompt(...)` with the Tab binding and a
 `bottom_toolbar` callable. `Ctrl+C` at the prompt raises `KeyboardInterrupt` and
@@ -165,7 +167,7 @@ with the renderer. A short grace period suppresses the spinner for fast response
 Content deltas are fed to `MarkdownStream` (`agent.py:373`), which emits
 `FormattedText` fragments through the same `print_formatted_text` path as `say`.
 It is an incremental state machine: block prefixes (headings, lists, tasks,
-quotes, rules, fences, tables) are recognized at line starts, while inline spans
+quotes, rules, fences, tables) are recognised at line starts, while inline spans
 and partial markers are held only until they resolve, so paragraphs keep
 streaming. Fenced code is highlighted per line through Pygments when available
 (`pygments` is a soft dependency). `finalize` flushes unresolved spans and
@@ -232,6 +234,14 @@ ignore `stream: true`, and surfaces `{"error": ...}` bodies as `AgentError`.
 **No retries.** A failed request raises `AgentError`, which `run_turn` prints and
 logs; the user's message stays in history, so the user can simply retry.
 
+**Command summaries.** `summarise_command` (`agent.py:1501`) sends a
+non-streaming completion to `{summary_base_url}/chat/completions` asking for
+one junior-developer-friendly sentence (`temperature: 0`, 5 s timeout). The three
+summary settings (`--summary-base-url`,
+`--summary-api-key`, `--summary-model` or their `AGENT_SUMMARY_*`
+environment variables) each fall back to the corresponding main setting, so a
+second lightweight model is optional. Any failure returns `None`.
+
 ## 7. Tool system
 
 Each tool is a `Tool` dataclass (`agent.py:211`):
@@ -270,7 +280,14 @@ OpenAI function schema.
 Handlers always return strings. Errors are strings starting with `ERROR:`,
 which the system prompt tells the model to interpret as failure.
 
-### Per-tool behavior and limits
+Before dispatch, `run_turn` prints a label per tool call. For `run_command` it
+prints `-> run_command <command>`, then uses `describe_command` to fetch (and
+cache) a one-line summary and prints it on the following line; the approval
+prompt and audit log still contain the
+raw command. A failed summary falls back to the raw command and disables
+summarisation for the rest of the session.
+
+### Per-tool behaviour and limits
 
 | Tool | Implementation notes |
 | --- | --- |
@@ -365,7 +382,7 @@ Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 | `session_end` | — |
 
 Tool results are capped before logging (64 KB) to bound file growth; everything
-else is stored in full. Serialization uses `default=str` so unexpected types can
+else is stored in full. Serialisation uses `default=str` so unexpected types can
 never break logging.
 
 ## 11. Error handling model
@@ -411,7 +428,7 @@ in `/tmp/opencode`:
 - `test_agent.py` — a mock OpenAI SSE server (stdlib `http.server`) that emits
   fragmented tool-call deltas, plus assertions covering: PLAN-mode schema
   filtering, PLAN-mode write blocking, streamed tool-call assembly, approval
-  `y`/`a`/`n` behavior, all file tools, the workspace boundary, `fetch_url`, a
+  `y`/`a`/`n` behaviour, all file tools, the workspace boundary, `fetch_url`, a
   full turn, server-visible tool lists, and audit-log events.
 - `test_tui.py` — uses `prompt_toolkit`'s `create_pipe_input`/`DummyOutput` to
   verify `Tab` toggles PLAN↔BUILD, the system prompt updates, mode changes are
@@ -445,6 +462,7 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 | Internal streaming markdown renderer | No new parsing dependency; keeps token-by-token prose and the prompt_toolkit output path | Hand-rolled subset: no nested emphasis, per-line code lexing, tables buffered |
 | Server `usage` + byte estimate for context | Exact when the server reports usage; always something to show otherwise | Numbers switch between exact and estimated; `include_usage` retried without on HTTP 400 |
 | Context window probe at startup | Zero-config denominator for the toolbar | One 5 s best-effort request pair; unknown if the server hides it |
+| Summary model for commands | Plain-language effect shown before approval; can run on a small cheap model | Extra request per unique command; command text goes to the summary endpoint |
 | Workspace path boundary | Prevents accidental reads/writes outside the project | No escape hatch; copy files in or point `--workspace` at a parent |
 | Full history, no compaction | Simple and lossless; local models often have large contexts | Very long sessions can exceed the model's context window |
 | JSONL audit log | Grep-able, append-only, crash-safe with per-event flush | Unbounded growth; external rotation needed |
