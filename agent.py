@@ -48,7 +48,7 @@ except ImportError:
     pass
 
 APP_NAME = "BA"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 INSTRUCTIONS_FILE = APP_DIR / "Instructions.md"
