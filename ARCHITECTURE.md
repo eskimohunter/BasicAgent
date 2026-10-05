@@ -40,7 +40,7 @@ and refer to the current revision.
 | `probe_context_window` | `agent.py:241` | Startup context-window probe (`/props`, `/models`) |
 | `AuditLog` | `agent.py:162` | Append-only JSONL writer |
 | `say` / `stream_write` / `Spinner` | `agent.py:265-371` | Terminal output helpers and wait spinner |
-| `MarkdownStream` | `agent.py:373-732` | Incremental markdown rendering (`--no-markdown` bypasses) |
+| `MarkdownStream` | `agent.py:373-732` | Incremental markdown rendering |
 | `cap` | `agent.py:734` | Tool/result truncation |
 | `Tool` | `agent.py:211` | Tool metadata: schema, handler, flags |
 | `resolve_path` / `is_excluded` | `agent.py:235-258` | Workspace boundary and directory excludes |
@@ -96,7 +96,7 @@ such as `AGENT_BASE_URL`.
 1. Parse configuration, then clear the terminal.
 2. Load workspace project instructions (`Agents.md`,
    any capitalization, capped at 32 KB) into the system prompt.
-3. Unless `--context-window`/`AGENT_CONTEXT_WINDOW` is set, probe the server for
+3. Unless `AGENT_CONTEXT_WINDOW` is set, probe the server for
    the context window (`/props`, then `/models`); a 5 s best-effort attempt that
    falls back to unknown.
 4. Open the audit log (unless disabled) and write `session_start` with a
@@ -123,7 +123,7 @@ user text
    │
    ├─ append {"role":"user"} ──────────────────────────────► audit: user_message
    │
-   └─ repeat up to config.max_steps times:
+   └─ repeat up to MAX_STEPS times:
         │
         ├─ stream_chat(app, on_delta) ──────► POST {base_url}/chat/completions
         │      │                                stream: true, tools: allowed schemas
@@ -148,7 +148,7 @@ user text
              └─ append {"role":"tool", "tool_call_id", "content"}
 ```
 
-If the loop exhausts `max_steps`, a warning is printed and logged, and the turn
+If the loop exhausts `MAX_STEPS`, a warning is printed and logged, and the turn
 ends. This bounds runaway tool loops.
 
 ### Wait indicator
@@ -169,8 +169,7 @@ quotes, rules, fences, tables) are recognized at line starts, while inline spans
 and partial markers are held only until they resolve, so paragraphs keep
 streaming. Fenced code is highlighted per line through Pygments when available
 (`pygments` is a soft dependency). `finalize` flushes unresolved spans and
-guarantees a trailing newline. With `--no-markdown`, deltas go straight to
-`stream_write`.
+guarantees a trailing newline.
 
 ### Interruption
 
@@ -194,9 +193,7 @@ library.
   "stream": true,
   "stream_options": { "include_usage": true },  // retried without on HTTP 400
   "tools": [ ... ],        // only when the mode permits at least one tool
-  "tool_choice": "auto",
-  "temperature": ...,      // only when set
-  "max_tokens": ...        // only when set
+  "tool_choice": "auto"
 }
 ```
 
@@ -283,13 +280,13 @@ which the system prompt tells the model to interpret as failure.
 | `fetch_url` | http(s) only; 100 KB default cap (clamped 1 KB–1 MB); HTTP errors returned as text, connection errors as `ToolError` |
 | `write_file` | Creates parent directories; overwrites |
 | `edit_file` | Exact string match; refuses empty `old_string`; fails on 0 matches or >1 without `replace_all` |
-| `run_command` | `subprocess.run(shell=True, check=False, capture_output=True, text=True, encoding="utf-8", errors="replace")`, `cwd=workspace`, timeout clamped 1–600 s; stdout/stderr merged with an `--- stderr ---` marker; exit code reported |
+| `run_command` | `subprocess.run(shell=True, check=False, capture_output=True, text=True, encoding="utf-8", errors="replace")`, `cwd=workspace`, timeout defaults to 60 s and is clamped 1–600 s; stdout/stderr merged with an `--- stderr ---` marker; exit code reported |
 
 ### Workspace boundary
 
 `resolve_path` (`agent.py:235`) resolves every file-tool path (relative to the
 workspace), follows symlinks via `Path.resolve`, and requires the result to be
-inside `config.workspace` unless `--allow-outside` is set. Shell commands are not
+inside `config.workspace`. Shell commands are not
 path-constrained, but are constrained by approval and run with `cwd=workspace`.
 
 ### Output caps
@@ -350,9 +347,8 @@ Properties:
 
 `AuditLog` (`agent.py:170`) opens `<app dir>/logs/YYYYMMDD-HHMMSS-<pid>.jsonl`
 (UTC) at startup, appends one JSON object per event, and flushes after every
-write. If logging is disabled (`--no-log`), all methods are no-ops; if the
-default app-directory location is not writable, a warning is printed and the
-session continues without logging.
+write. If the default app-directory location is not writable, a warning is
+printed and the session continues without logging.
 
 Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 
@@ -449,7 +445,7 @@ use `--base-url http://127.0.0.1:<port>/v1`.
 | Internal streaming markdown renderer | No new parsing dependency; keeps token-by-token prose and the prompt_toolkit output path | Hand-rolled subset: no nested emphasis, per-line code lexing, tables buffered |
 | Server `usage` + byte estimate for context | Exact when the server reports usage; always something to show otherwise | Numbers switch between exact and estimated; `include_usage` retried without on HTTP 400 |
 | Context window probe at startup | Zero-config denominator for the toolbar | One 5 s best-effort request pair; unknown if the server hides it |
-| Workspace path boundary | Prevents accidental reads/writes outside the project | Requires `--allow-outside` for legitimate external paths |
+| Workspace path boundary | Prevents accidental reads/writes outside the project | No escape hatch; copy files in or point `--workspace` at a parent |
 | Full history, no compaction | Simple and lossless; local models often have large contexts | Very long sessions can exceed the model's context window |
 | JSONL audit log | Grep-able, append-only, crash-safe with per-event flush | Unbounded growth; external rotation needed |
 

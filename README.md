@@ -28,7 +28,7 @@ BA [plan]> This project uses a Nix flake...
 - **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
   model's first output of a turn.
 - **Context usage** — the status bar shows tokens used against the context
-  window (probed from the server, or set with `--context-window`). Exact when
+  window (probed from the server, or set with `AGENT_CONTEXT_WINDOW`). Exact when
   the server reports `usage`, estimated otherwise.
 - **PLAN / BUILD modes** — press `Tab` to toggle. PLAN is read-only and enforced
   structurally (write/run tools are not even offered to the model). BUILD enables
@@ -105,8 +105,8 @@ export AGENT_BASE_URL=http://192.168.1.10:8080/v1
 export AGENT_MODEL=qwen2.5-coder
 python agent.py
 
-# Run against a subdirectory, with no audit log
-python agent.py --workspace ~/src/myproject --no-log
+# Run against a subdirectory
+python agent.py --workspace ~/src/myproject
 ```
 
 ### Keyboard
@@ -137,7 +137,7 @@ Partial markers are held only until they resolve, so prose still appears
 token-by-token.
 
 Known limits: emphasis is not nested, fenced code is highlighted line by line,
-and tables are printed once the table block ends. Pass `--no-markdown` for raw text.
+and tables are printed once the table block ends.
 
 ## Modes
 
@@ -187,7 +187,7 @@ directory. There is no hidden wrapping or rewriting.
 
 Tool results are capped at 64 KB sent to the model and previewed at 2 KB in the
 terminal; the full (capped) result is stored in the audit log. File tools are
-confined to the workspace unless `--allow-outside` is given.
+confined to the workspace.
 
 ## Configuration
 
@@ -198,22 +198,12 @@ Precedence: CLI argument > environment variable > default.
 | `--base-url` | `AGENT_BASE_URL`, `OPENAI_BASE_URL` | `http://localhost:8080/v1` | API root |
 | `--api-key` | `AGENT_API_KEY`, `OPENAI_API_KEY` | `none` | Bearer token |
 | `--model` | `AGENT_MODEL`, `OPENAI_MODEL` | `local-model` | Model name |
-| `--temperature` | — | unset | Omitted from requests unless given |
-| `--max-tokens` | — | unset | Omitted from requests unless given |
-| `--timeout` | — | `120` | HTTP timeout (seconds) |
-| `--command-timeout` | — | `60` | Default shell timeout (seconds, clamped 1–600) |
-| `--max-steps` | — | `25` | Max tool rounds per user turn |
 | `--workspace` | — | current directory | Workspace root for tools and shell |
-| `--log-dir` | — | `<app dir>/logs` | Audit log directory |
-| `--no-log` | — | off | Disable audit logging |
-| `--no-markdown` | — | off | Render assistant replies as plain text |
-| `--context-window` | `AGENT_CONTEXT_WINDOW` | probe | Context window in tokens; `0` probes `/props` then `/models` |
-| `--allow-outside` | — | off | Allow file tools outside the workspace |
-| `--system-prompt` | — | built-in | Replace the base system prompt (workspace `Agents.md` is still appended) |
+| — | `AGENT_CONTEXT_WINDOW` | probe | Context window in tokens; `0` probes `/props` then `/models` |
 
 ## Audit log
 
-Unless `--no-log` is passed, each session writes
+Each session writes
 `<app dir>/logs/YYYYMMDD-HHMMSS-<pid>.jsonl` (UTC timestamp) next to `agent.py`,
 regardless of the terminal's working directory. One JSON object per line:
 

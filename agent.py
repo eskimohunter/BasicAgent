@@ -58,6 +58,9 @@ DISPLAY_PREVIEW_LINES = 40
 READ_MAX_LINES = 2_000
 GREP_MAX_FILE_BYTES = 2_000_000
 FETCH_MAX_BYTES = 100_000
+REQUEST_TIMEOUT = 120.0
+COMMAND_TIMEOUT = 60
+MAX_STEPS = 25
 INSTRUCTIONS_MAX_BYTES = 32_000
 DEFAULT_EXCLUDES = {
     ".git",
@@ -139,19 +142,9 @@ class Config:
     base_url: str = DEFAULT_BASE_URL
     api_key: str = "none"
     model: str = "local-model"
-    temperature: float | None = None
-    max_tokens: int | None = None
-    request_timeout: float = 120.0
-    command_timeout: int = 60
-    max_steps: int = 25
     workspace: Path = field(default_factory=Path.cwd)
-    log_dir: Path = field(default_factory=lambda: DEFAULT_LOG_DIR)
-    log_enabled: bool = True
-    allow_outside: bool = False
-    system_prompt: str | None = None
     project_instructions: str | None = None
     project_instructions_path: Path | None = None
-    markdown: bool = True
     context_window: int = 0
     context_window_source: str = "unknown"
 
@@ -182,66 +175,29 @@ def parse_args(argv: list[str] | None = None) -> Config:
         or "local-model",
         help="Model name to request",
     )
-    parser.add_argument("--temperature", type=float, default=None, help="Sampling temperature")
-    parser.add_argument("--max-tokens", type=int, default=None, help="Response token limit")
-    parser.add_argument(
-        "--timeout", type=float, default=120.0, dest="request_timeout", help="HTTP timeout (s)"
-    )
-    parser.add_argument(
-        "--command-timeout", type=int, default=60, help="Default shell command timeout (s)"
-    )
-    parser.add_argument(
-        "--max-steps", type=int, default=25, help="Maximum tool rounds per user turn"
-    )
     parser.add_argument("--workspace", default=".", help="Workspace root directory")
-    parser.add_argument(
-        "--log-dir",
-        default=str(DEFAULT_LOG_DIR),
-        help="Directory for JSONL audit logs (default: <app dir>/logs)",
-    )
-    parser.add_argument("--no-log", action="store_true", help="Disable audit logging")
-    parser.add_argument(
-        "--no-markdown",
-        action="store_true",
-        help="Render assistant replies as plain text (no markdown styling)",
-    )
-    parser.add_argument(
-        "--allow-outside",
-        action="store_true",
-        help="Allow file tools to access paths outside the workspace",
-    )
-    parser.add_argument(
-        "--context-window",
-        type=int,
-        default=os.environ.get("AGENT_CONTEXT_WINDOW"),
-        help="Model context window in tokens (default: probe the server)",
-    )
-    parser.add_argument("--system-prompt", default=None, help="Override the built-in system prompt")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     ns = parser.parse_args(argv)
+    env_context = os.environ.get("AGENT_CONTEXT_WINDOW", "").strip()
+    context_window = 0
+    if env_context:
+        try:
+            context_window = max(0, int(env_context))
+        except ValueError:
+            parser.error(f"AGENT_CONTEXT_WINDOW must be an integer, got {env_context!r}")
     return Config(
         base_url=ns.base_url.rstrip("/"),
         api_key=ns.api_key,
         model=ns.model,
-        temperature=ns.temperature,
-        max_tokens=ns.max_tokens,
-        request_timeout=ns.request_timeout,
-        command_timeout=ns.command_timeout,
-        max_steps=max(1, ns.max_steps),
         workspace=Path(ns.workspace).expanduser().resolve(),
-        log_dir=Path(ns.log_dir).expanduser(),
-        log_enabled=not ns.no_log,
-        allow_outside=ns.allow_outside,
-        system_prompt=ns.system_prompt,
-        markdown=not ns.no_markdown,
-        context_window=max(0, ns.context_window or 0),
-        context_window_source="config" if (ns.context_window or 0) > 0 else "unknown",
+        context_window=context_window,
+        context_window_source="env" if context_window > 0 else "unknown",
     )
 
 
 def probe_context_window(config: Config) -> tuple[int, str]:
     """Best-effort context window probe. Returns (tokens, source)."""
-    timeout = min(config.request_timeout, 5.0)
+    timeout = min(REQUEST_TIMEOUT, 5.0)
     root = config.base_url.removesuffix("/v1")
 
     def get_json(url: str) -> Any:
@@ -292,22 +248,21 @@ def probe_context_window(config: Config) -> tuple[int, str]:
 class AuditLog:
     """Append-only JSONL log of everything the agent says, calls and executes."""
 
-    def __init__(self, config: Config):
+    def __init__(self):
         self.path: Path | None = None
         self._fh: Any = None
-        if config.log_enabled:
-            try:
-                config.log_dir.mkdir(parents=True, exist_ok=True)
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-                self.path = config.log_dir / f"{stamp}-{os.getpid()}.jsonl"
-                self._fh = self.path.open("a", encoding="utf-8")
-            except OSError as exc:
-                say(
-                    f"warning: cannot write audit log to {config.log_dir}: {exc}",
-                    "class:warn",
-                )
-                self.path = None
-                self._fh = None
+        try:
+            DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            self.path = DEFAULT_LOG_DIR / f"{stamp}-{os.getpid()}.jsonl"
+            self._fh = self.path.open("a", encoding="utf-8")
+        except OSError as exc:
+            say(
+                f"warning: cannot write audit log to {DEFAULT_LOG_DIR}: {exc}",
+                "class:warn",
+            )
+            self.path = None
+            self._fh = None
 
     def log(self, event: str, **fields: Any) -> None:
         if self._fh is None:
@@ -838,14 +793,10 @@ def resolve_path(config: Config, raw: str) -> Path:
     if not path.is_absolute():
         path = config.workspace / path
     path = path.resolve()
-    if not config.allow_outside:
-        try:
-            path.relative_to(config.workspace)
-        except ValueError as exc:
-            raise ToolError(
-                f"path is outside the workspace ({config.workspace}); "
-                "use --allow-outside to permit this"
-            ) from exc
+    try:
+        path.relative_to(config.workspace)
+    except ValueError as exc:
+        raise ToolError(f"path is outside the workspace ({config.workspace})") from exc
     return path
 
 
@@ -1000,7 +951,7 @@ def tool_fetch_url(config: Config, url: str, max_bytes: int = FETCH_MAX_BYTES) -
     limit = max(1000, min(int(max_bytes), 1_000_000))
     request = urllib.request.Request(url, headers={"User-Agent": f"{APP_NAME}/{VERSION}"})
     try:
-        with urllib.request.urlopen(request, timeout=config.request_timeout) as response:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
             raw = response.read(limit + 1)
             content_type = response.headers.get_content_type()
             charset = response.headers.get_content_charset() or "utf-8"
@@ -1059,7 +1010,7 @@ def tool_edit_file(
 def tool_run_command(config: Config, command: str, timeout_seconds: int = 0) -> str:
     if not command.strip():
         raise ToolError("command must not be empty")
-    timeout = int(timeout_seconds) if int(timeout_seconds) > 0 else config.command_timeout
+    timeout = int(timeout_seconds) if int(timeout_seconds) > 0 else COMMAND_TIMEOUT
     timeout = max(1, min(timeout, 600))
     try:
         proc = subprocess.run(
@@ -1217,20 +1168,17 @@ def load_project_instructions(config: Config) -> None:
 
 
 def build_system_prompt(config: Config, mode: Mode) -> str:
-    if config.system_prompt:
-        base = config.system_prompt
-    else:
-        base = (
-            f"You are {APP_NAME}, a coding agent running in the user's terminal.\n"
-            f"Workspace root: {config.workspace}\n\n"
-            "Rules:\n"
-            "- Inspect files with read_file, list_dir and grep before making changes.\n"
-            "- Use write_file and edit_file to modify files.\n"
-            "- To run a shell command, call run_command. The user must approve every command; "
-            "never claim a command ran until you see the tool result.\n"
-            "- Tool results beginning with 'ERROR:' indicate failure; read them and adjust.\n"
-            "- Keep answers concise and grounded in tool output. Do not invent file contents.\n"
-        )
+    base = (
+        f"You are {APP_NAME}, a coding agent running in the user's terminal.\n"
+        f"Workspace root: {config.workspace}\n\n"
+        "Rules:\n"
+        "- Inspect files with read_file, list_dir and grep before making changes.\n"
+        "- Use write_file and edit_file to modify files.\n"
+        "- To run a shell command, call run_command. The user must approve every command; "
+        "never claim a command ran until you see the tool result.\n"
+        "- Tool results beginning with 'ERROR:' indicate failure; read them and adjust.\n"
+        "- Keep answers concise and grounded in tool output. Do not invent file contents.\n"
+    )
     if config.project_instructions:
         base += (
             f"\n\nProject instructions ({config.project_instructions_path}):\n"
@@ -1398,10 +1346,6 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
     if schemas:
         payload["tools"] = schemas
         payload["tool_choice"] = "auto"
-    if config.temperature is not None:
-        payload["temperature"] = config.temperature
-    if config.max_tokens is not None:
-        payload["max_tokens"] = config.max_tokens
 
     def open_chat(with_stream_options: bool) -> Any:
         if with_stream_options:
@@ -1417,7 +1361,7 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
             },
             method="POST",
         )
-        return urllib.request.urlopen(request, timeout=config.request_timeout)
+        return urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT)
 
     def failure(exc: Exception) -> AgentError:
         if isinstance(exc, urllib.error.HTTPError):
@@ -1586,27 +1530,18 @@ def execute_tool(app: App, call: dict[str, Any]) -> str:
 def run_turn(app: App, user_text: str) -> None:
     app.messages.append({"role": "user", "content": user_text})
     app.log.log("user_message", content=user_text)
-    for _ in range(app.config.max_steps):
+    for _ in range(MAX_STEPS):
         say(f"\n{APP_NAME} [{app.mode.value}]> ", "class:agent")
         spinner = Spinner()
-        renderer: MarkdownStream | None = None
 
-        if app.config.markdown:
+        def emit(fragments: list[tuple[str, str]], spinner: Spinner = spinner) -> None:
+            spinner.stop()
+            pt_print(FormattedText(fragments), end="", flush=True, style=STYLE)
 
-            def emit(fragments: list[tuple[str, str]], spinner: Spinner = spinner) -> None:
-                spinner.stop()
-                pt_print(FormattedText(fragments), end="", flush=True, style=STYLE)
+        renderer = MarkdownStream(emit)
 
-            renderer = MarkdownStream(emit)
-
-            def on_delta(text: str, renderer: MarkdownStream = renderer) -> None:
-                renderer.feed(text)
-
-        else:
-
-            def on_delta(text: str, spinner: Spinner = spinner) -> None:
-                spinner.stop()
-                stream_write(text)
+        def on_delta(text: str, renderer: MarkdownStream = renderer) -> None:
+            renderer.feed(text)
 
         spinner.start()
         try:
@@ -1617,11 +1552,8 @@ def run_turn(app: App, user_text: str) -> None:
             return
         finally:
             spinner.stop()
-        if renderer is not None:
-            renderer.finalize()
-            if not renderer.wrote:
-                stream_write("\n")
-        else:
+        renderer.finalize()
+        if not renderer.wrote:
             stream_write("\n")
         assistant = result.message
         app.messages.append(assistant)
@@ -1650,7 +1582,7 @@ def run_turn(app: App, user_text: str) -> None:
                 say(f"     {line}", "class:tool.result")
             if len(preview_lines) > DISPLAY_PREVIEW_LINES:
                 say("     ...", "class:tool.result")
-    say(f"step limit ({app.config.max_steps}) reached; stopping this turn", "class:warn")
+    say(f"step limit ({MAX_STEPS}) reached; stopping this turn", "class:warn")
     app.log.log("error", message="step limit reached")
 
 
@@ -1817,7 +1749,7 @@ def main(argv: list[str] | None = None) -> int:
     load_project_instructions(config)
     if config.context_window <= 0:
         config.context_window, config.context_window_source = probe_context_window(config)
-    log = AuditLog(config)
+    log = AuditLog()
     session: PromptSession = PromptSession(style=STYLE)
     app = App(config, log, session)
     bindings = build_key_bindings(app)
