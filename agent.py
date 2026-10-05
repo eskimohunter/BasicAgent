@@ -1805,7 +1805,6 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         log.log("session_end")
         log.close()
-    say("bye", "class:info")
     return 0
 
 
