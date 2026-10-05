@@ -13,3 +13,5 @@
 - [x] Refused to read ‘binary file’ .xml
 - [x] Display context usage in the toolbar
 - [x] Bump Python to 3.14
+- [ ] Generate gif for docs automatically
+- [x] If an Instructions.md is present in the tool directory then display that after the banner

@@ -43,6 +43,8 @@ BA [plan]> This project uses a Nix flake...
   `write_file`, `edit_file`, `run_command`.
 - **Project instructions** — an `Agents.md` in the workspace root (any
   capitalization) is loaded into the system prompt at startup.
+- **Startup instructions** — an `Instructions.md` next to `agent.py` is rendered
+  as markdown right after the banner, if present.
 
 ## Requirements
 

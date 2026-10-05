@@ -48,6 +48,7 @@ and refer to the current revision.
 | `build_tools` | `agent.py:454` | Registry: name → `Tool` |
 | `load_project_instructions` | `agent.py:654-681` | Workspace `Agents.md` → system prompt |
 | `build_system_prompt` | `agent.py:684` | Mode-aware system prompt (incl. project instructions) |
+| `print_startup_instructions` | `agent.py:1862` | Renders `Instructions.md` next to `agent.py` after the banner |
 | `Approvals` | `agent.py:728` | Yes/No button approval gate + allowlist seam |
 | `StreamResult` | `agent.py:627` | One assistant reply: message dict + interrupted flag |
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |

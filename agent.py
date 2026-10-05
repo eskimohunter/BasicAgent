@@ -51,6 +51,7 @@ APP_NAME = "BA"
 VERSION = "0.4.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
+INSTRUCTIONS_FILE = APP_DIR / "Instructions.md"
 DEFAULT_BASE_URL = "http://localhost:8080/v1"
 TOOL_RESULT_LIMIT = 64_000
 DISPLAY_PREVIEW_LIMIT = 2_000
@@ -1863,6 +1864,24 @@ def print_banner(app: App) -> None:
     say("  /help for commands")
 
 
+def print_startup_instructions() -> None:
+    try:
+        text = INSTRUCTIONS_FILE.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        say(f"warning: cannot read {INSTRUCTIONS_FILE.name}: {exc}", "class:warn")
+        return
+    say("")
+    renderer = MarkdownStream(
+        lambda fragments: pt_print(FormattedText(fragments), end="", flush=True, style=STYLE)
+    )
+    renderer.feed(text)
+    renderer.finalize()
+    if not renderer.wrote:
+        stream_write("\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     config = parse_args(argv)
     clear()
@@ -1891,6 +1910,7 @@ def main(argv: list[str] | None = None) -> int:
         context_window_source=config.context_window_source,
     )
     print_banner(app)
+    print_startup_instructions()
     try:
         while True:
             try:
