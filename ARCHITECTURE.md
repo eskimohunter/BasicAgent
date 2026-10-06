@@ -40,6 +40,7 @@ and refer to the current revision.
 | `probe_context_window` | `agent.py:241` | Startup context-window probe (`/props`, `/models`) |
 | `AuditLog` | `agent.py:162` | Append-only JSONL writer |
 | `say` / `stream_write` / `Spinner` | `agent.py:265-371` | Terminal output helpers and wait spinner |
+| `KeyWatcher` | `agent.py:377` | Raw stdin watcher; Esc during streaming raises SIGINT |
 | `MarkdownStream` | `agent.py:373-732` | Incremental markdown rendering |
 | `cap` | `agent.py:734` | Tool/result truncation |
 | `Tool` | `agent.py:211` | Tool metadata: schema, handler, flags |
@@ -110,12 +111,12 @@ such as `AGENT_BASE_URL`.
 7. Render `Instructions.md` next to `agent.py` as markdown, if present.
 8. Enter the REPL loop.
 
-The REPL loop calls `session.prompt(...)` with the Tab binding and a
-`bottom_toolbar` callable. `Ctrl+C` at the prompt raises `KeyboardInterrupt` and
-is caught to continue; `Ctrl+D` raises `EOFError` and exits. Input starting with
+The REPL loop calls `session.prompt(...)` with the Tab, Esc and Ctrl+C key
+bindings and a `bottom_toolbar` callable. `Esc` resets the input buffer;
+`Ctrl+C` exits with `QuitApp` and `Ctrl+D` raises `EOFError`. Input starting with
 `/` goes to `handle_command`; everything else goes to `run_turn`. The loop ends
-via `/exit`, `EOFError`, or an uncaught exception, and `session_end` is always
-written in a `finally` block.
+via `/exit`, `Ctrl+C`, `Ctrl+D`, or an uncaught exception, and `session_end` is
+always written in a `finally` block.
 
 ## 5. Turn lifecycle
 
@@ -181,11 +182,13 @@ as a fallback.
 
 ### Interruption
 
-`Ctrl+C` while streaming raises `KeyboardInterrupt` inside `stream_chat`. The
-partial text is kept, `[interrupted by user]` is appended, and `StreamResult`
-sets `interrupted=True`. `run_turn` then returns without executing any
-partially-received tool calls (their argument JSON would be incomplete and
-possibly dangerous to guess at).
+`Esc` while streaming is picked up by `KeyWatcher` (a daemon thread reading raw
+keys), which raises `SIGINT`; the resulting `KeyboardInterrupt` inside
+`stream_chat` becomes an interrupted `StreamResult`. The partial text is kept,
+`[interrupted by user]` is appended, and `run_turn` returns without executing
+any partially-received tool calls (their argument JSON would be incomplete and
+possibly dangerous to guess at). A real `Ctrl+C` raises the same exception with
+`escaped` unset, so `stream_chat` re-raises and BA quits.
 
 ## 6. LLM client
 
@@ -350,7 +353,7 @@ The set is empty for now; it is the seam for a future config-file allowlist.
                                       │
                      Enter on Yes ────┤ execute
                      Enter on No ─────┤ deny  → "User denied execution..."
-                     Ctrl+C/EOF ──────┘ deny
+                     Esc ─────────────┘ deny
 ```
 
 Properties:
@@ -400,9 +403,9 @@ never break logging.
 | Malformed tool arguments | `ERROR:` tool result; model can retry |
 | `ToolError` from a handler | `ERROR:` tool result |
 | Unexpected handler exception | `ERROR: <tool> failed: ...` tool result |
-| `KeyboardInterrupt` during streaming | Partial reply kept; tool calls dropped |
-| `KeyboardInterrupt` during a command | `ERROR: command interrupted by user` |
-| `KeyboardInterrupt` elsewhere in a turn | Caught in `main`; warning printed |
+| `Esc` while streaming | Partial reply kept; tool calls dropped |
+| `Ctrl+C` during a command | BA quits (child receives SIGINT) |
+| `Ctrl+C` elsewhere in a turn | Quits `main` cleanly via `KeyboardInterrupt`/`QuitApp` |
 | Step limit reached | Warning printed and logged |
 
 The guiding rule: **user-visible failures never crash the REPL, and tool

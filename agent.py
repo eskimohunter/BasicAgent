@@ -13,7 +13,9 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -137,6 +139,10 @@ STYLE = Style.from_dict(
 
 class AgentError(Exception):
     """Raised for failures that should be shown to the user, not crash the agent."""
+
+
+class QuitApp(Exception):
+    """Raised to leave the main loop cleanly (Ctrl+C, approval quit)."""
 
 
 class ToolError(Exception):
@@ -366,6 +372,70 @@ class Spinner:
         self._thread = None
         sys.stdout.write("\r  \r")
         sys.stdout.flush()
+
+
+class KeyWatcher:
+    """Watches stdin for Esc while a model response streams.
+
+    Reads raw keys in a daemon thread (no-op when stdin is not a TTY). On a
+    lone Escape it raises SIGINT so the blocked HTTP read unwinds; ``escaped``
+    lets stream_chat tell an Esc interrupt apart from a Ctrl+C quit.
+    """
+
+    def __init__(self) -> None:
+        self.escaped = threading.Event()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if not sys.stdin.isatty():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._watch, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        thread = self._thread
+        if thread is None:
+            return
+        self._stop.set()
+        thread.join()
+        self._thread = None
+
+    def _watch(self) -> None:
+        if os.name == "nt":
+            self._watch_windows()
+        else:
+            self._watch_posix()
+
+    def _watch_posix(self) -> None:
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            while not self._stop.is_set():
+                ready, _, _ = select.select([fd], [], [], 0.1)
+                if ready and os.read(fd, 1) == b"\x1b":
+                    self._interrupt()
+                    return
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    def _watch_windows(self) -> None:
+        import msvcrt
+
+        while not self._stop.is_set():
+            if msvcrt.kbhit() and msvcrt.getch() == b"\x1b":
+                self._interrupt()
+                return
+            self._stop.wait(0.05)
+
+    def _interrupt(self) -> None:
+        self.escaped.set()
+        signal.raise_signal(signal.SIGINT)
 
 
 RE_HEADING = re.compile(r"^(#{1,6})[ \t]+")
@@ -1317,10 +1387,14 @@ class Approvals:
         def _confirm(event: Any) -> None:
             event.app.exit(result=options[selected["index"]][1])
 
-        @bindings.add("c-c")
-        @bindings.add("c-d")
+        @bindings.add("escape")
         def _cancel(event: Any) -> None:
             event.app.exit(result=False)
+
+        @bindings.add("c-c")
+        @bindings.add("c-d")
+        def _quit(event: Any) -> None:
+            event.app.exit(exception=QuitApp())
 
         confirmation: Application[bool] = Application(
             layout=Layout(
@@ -1452,6 +1526,8 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
     calls: dict[int, dict[str, str]] = {}
     usage: dict[str, Any] | None = None
     interrupted = False
+    watcher = KeyWatcher()
+    watcher.start()
     try:
         with response:
             content_type = (response.headers.get("Content-Type") or "").lower()
@@ -1497,7 +1573,12 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
                     if fn.get("arguments"):
                         acc["arguments"] += fn["arguments"]
     except KeyboardInterrupt:
-        interrupted = True
+        if watcher.escaped.is_set():
+            interrupted = True
+        else:
+            raise
+    finally:
+        watcher.stop()
 
     content = "".join(content_parts)
     if interrupted:
@@ -1640,8 +1721,6 @@ def execute_tool(app: App, call: dict[str, Any]) -> str:
     app.log.log("tool_call", name=name, arguments=args, call_id=call_id)
     try:
         result = tool.handler(**args)
-    except KeyboardInterrupt:
-        result = "ERROR: command interrupted by user"
     except ToolError as exc:
         result = f"ERROR: {exc}"
     except TypeError as exc:
@@ -1877,6 +1956,14 @@ def build_key_bindings(app: App) -> KeyBindings:
     def _toggle_mode(event: Any) -> None:
         app.toggle_mode()
 
+    @bindings.add("escape")
+    def _clear_line(event: Any) -> None:
+        event.current_buffer.reset()
+
+    @bindings.add("c-c")
+    def _quit(event: Any) -> None:
+        event.app.exit(exception=QuitApp())
+
     return bindings
 
 
@@ -1902,6 +1989,7 @@ def print_banner(app: App) -> None:
     say(f"  endpoint:  {app.config.base_url}")
     say(f"  workspace: {app.config.workspace}")
     say("  /help for commands")
+    say("  Ctrl+C to quit")
 
 
 def print_startup_instructions() -> None:
@@ -1959,9 +2047,7 @@ def main(argv: list[str] | None = None) -> int:
                     key_bindings=bindings,
                     bottom_toolbar=lambda: build_toolbar(app),
                 )
-            except KeyboardInterrupt:
-                continue
-            except EOFError:
+            except (KeyboardInterrupt, EOFError, QuitApp):
                 break
             text = text.strip()
             if not text:
@@ -1972,8 +2058,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             try:
                 run_turn(app, text)
-            except KeyboardInterrupt:
-                say("interrupted", "class:warn")
+            except (KeyboardInterrupt, QuitApp):
+                break
     finally:
         log.log("session_end")
         log.close()

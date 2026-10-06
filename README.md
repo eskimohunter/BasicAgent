@@ -118,7 +118,8 @@ python agent.py --workspace ~/src/myproject
 | Key | Action |
 | --- | --- |
 | `Tab` | Toggle PLAN / BUILD mode |
-| `Ctrl+C` | At the prompt: clear the line. While streaming: interrupt the response |
+| `Esc` | At the prompt: clear the input. While streaming: interrupt the response |
+| `Ctrl+C` | Quit |
 | `Ctrl+D` | Quit |
 
 ### Slash commands
@@ -171,7 +172,8 @@ and working directory:
 
 - `←` / `→` — highlight Yes or No (Yes is selected by default).
 - `Enter` — confirm the highlighted choice.
-- `Ctrl+C` / `Ctrl+D` — deny; the model is told the user denied it.
+- `Esc` — deny; the model is told the user denied it.
+- `Ctrl+C` / `Ctrl+D` — quit BA.
 
 Every command is approved individually; the prompt does not remember earlier
 approvals.
