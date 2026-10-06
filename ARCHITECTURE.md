@@ -156,12 +156,13 @@ ends. This bounds runaway tool loops.
 
 ### Wait indicator
 
-Each `stream_chat` call is wrapped in a `Spinner` (`agent.py:278`): a daemon
-thread that animates an ASCII frame on the current line until the renderer
-produces its first output, or until the stream ends if the model only emits tool
-calls. The thread writes directly to `stdout` and is always stopped (and joined)
-in a `finally` block before anything else is printed, so it cannot interleave
-with the renderer. A short grace period suppresses the spinner for fast responses.
+`stream_chat` is wrapped in a `Spinner` (`agent.py:278`): a daemon thread that
+animates an ASCII frame on the current line until the renderer produces its
+first output, or until the stream ends if the model only emits tool calls. When
+tool calls arrive, the same spinner keeps running while command summaries are
+prefetched (`describe_command`), so the user sees a single wait; it is stopped
+before anything else is printed. The thread writes directly to `stdout` and a
+short grace period suppresses the spinner for fast responses.
 
 ### Reply rendering
 

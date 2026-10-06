@@ -26,7 +26,7 @@ BA [plan]> This project uses a Nix flake...
   fences (syntax-highlighted when `pygments` is installed), lists, task lists,
   tables and links (OSC 8 clickable in supported terminals) while they stream.
 - **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
-  model's first output of a turn.
+  model's first output of a turn, and while command summaries are generated.
 - **Context usage** — the status bar shows tokens used against the context
   window (probed from the server, or set with `AGENT_CONTEXT_WINDOW`). Exact when
   the server reports `usage`, estimated otherwise.

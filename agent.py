@@ -1585,12 +1585,7 @@ def describe_command(app: App, command: str) -> str | None:
     if app.summary_disabled:
         app.log.log("command_summary", command=command, summary=None, source="fallback")
         return None
-    spinner = Spinner()
-    spinner.start()
-    try:
-        summary = summarise_command(app.config, command)
-    finally:
-        spinner.stop()
+    summary = summarise_command(app.config, command)
     if summary:
         app.summaries[command] = summary
         source = "model"
@@ -1678,14 +1673,10 @@ def run_turn(app: App, user_text: str) -> None:
         try:
             result = stream_chat(app, on_delta)
         except AgentError as exc:
+            spinner.stop()
             say(f"\nERROR: {exc}", "class:error")
             app.log.log("error", message=str(exc))
             return
-        finally:
-            spinner.stop()
-        renderer.finalize()
-        if not renderer.wrote:
-            stream_write("\n")
         assistant = result.message
         app.messages.append(assistant)
         app.record_usage(result.usage)
@@ -1695,17 +1686,35 @@ def run_turn(app: App, user_text: str) -> None:
             tool_calls=assistant.get("tool_calls", []),
         )
         if result.interrupted or not assistant.get("tool_calls"):
+            spinner.stop()
+            renderer.finalize()
+            if not renderer.wrote:
+                stream_write("\n")
             return
-        for call in assistant["tool_calls"]:
-            name = call["function"]["name"]
-            if name == "run_command":
-                command = command_from_call(call)
-                say(f"  -> run_command {command}", "class:tool")
-                summary = describe_command(app, command) if command else None
-                if summary:
-                    say(f"     {summary}", "class:tool.result")
-            else:
-                say(f"  -> {name} {summarise_args(call)}", "class:tool")
+
+        streamed = renderer.wrote
+        if streamed:
+            renderer.finalize()
+        spinner.start()
+        try:
+            prepared: list[tuple[dict[str, Any], str, str | None]] = []
+            for call in assistant["tool_calls"]:
+                name = call["function"]["name"]
+                if name == "run_command":
+                    command = command_from_call(call)
+                    summary = describe_command(app, command) if command else None
+                    prepared.append((call, f"  -> run_command {command}", summary))
+                else:
+                    prepared.append((call, f"  -> {name} {summarise_args(call)}", None))
+        finally:
+            spinner.stop()
+        if not streamed:
+            renderer.finalize()
+            stream_write("\n")
+        for call, label, summary in prepared:
+            say(label, "class:tool")
+            if summary:
+                say(f"     {summary}", "class:tool.result")
             content = execute_tool(app, call)
             app.messages.append(
                 {"role": "tool", "tool_call_id": call["id"], "content": content}
