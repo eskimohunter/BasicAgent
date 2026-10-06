@@ -56,6 +56,8 @@ and refer to the current revision.
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |
 | `finalize_tool_calls` | `agent.py:662` | Merge streamed tool-call fragments |
 | `stream_chat` | `agent.py:679` | HTTP POST + SSE parsing + live rendering |
+| `chat_completions_url` / `auth_headers` | `agent.py:1517` | API-style-aware endpoint and `Authorization` header |
+| `openwebui_signin` / `openwebui_token` | `agent.py:1525` | JWT sign-in and per-endpoint token cache |
 | `summarise_args` | `agent.py:778` | One-line tool-call display |
 | `summarise_command` / `describe_command` | `agent.py:1501-1560` | One-line command explanation via the summary model, cached per session |
 | `execute_tool` | `agent.py:793` | Dispatch pipeline: validate → guard → approve → run → log |
@@ -246,9 +248,20 @@ ignore `stream: true`, and surfaces `{"error": ...}` bodies as `AgentError`.
 **No retries.** A failed request raises `AgentError`, which `run_turn` prints and
 logs; the user's message stays in history, so the user can simply retry.
 
+**Open WebUI auth.** With `AGENT_API_STYLE=openwebui` (env/`.env` only), chat
+requests go to `{base_url}/api/chat/completions` and `auth_headers` signs in via
+`POST {base_url}/api/v1/auths/signin` with `OPENWEBUI_EMAIL`/`OPENWEBUI_PASSWORD`
+(JSON, no credentials in the URL or CLI). `openwebui_token` caches the returned
+JWT per endpoint and refreshes it 60 s before `expires_at` (a `null` expiry
+caches it indefinitely); a chat request answered with HTTP 401 triggers one
+forced re-sign-in and retry. Sign-in failures raise `AgentError` without echoing
+the response body, and neither password nor token is ever logged. The
+context-window probe is skipped for this style.
+
 **Command summaries.** `summarise_command` (`agent.py:1501`) sends a
-non-streaming completion to `{summary_base_url}/chat/completions` asking for
-one junior-developer-friendly sentence (`temperature: 0`, 5 s timeout). The three
+non-streaming completion to the style-appropriate chat URL (see
+`chat_completions_url`) asking for one junior-developer-friendly sentence
+(`temperature: 0`, 5 s timeout). The three
 summary settings (`--summary-base-url`,
 `--summary-api-key`, `--summary-model` or their `AGENT_SUMMARY_*`
 environment variables) each fall back to the corresponding main setting, so a
@@ -383,7 +396,7 @@ Event schema (common fields: `ts` in UTC ISO-8601, `event`):
 
 | Event | Extra fields |
 | --- | --- |
-| `session_start` | `version`, `base_url`, `model`, `workspace`, `mode`, `api_key` (redacted), `instructions`, `instructions_bytes`, `context_window`, `context_window_source` |
+| `session_start` | `version`, `base_url`, `model`, `api_style`, `workspace`, `mode`, `api_key` (redacted), `instructions`, `instructions_bytes`, `context_window`, `context_window_source` |
 | `user_message` | `content` |
 | `assistant_message` | `content`, `tool_calls` |
 | `tool_call` | `name`, `arguments` (full object), `call_id` |
