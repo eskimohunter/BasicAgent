@@ -315,7 +315,7 @@ path-constrained, but are constrained by approval and run with `cwd=workspace`.
 ### Output caps
 
 - `TOOL_RESULT_LIMIT` (64 KB) — what the model sees and what is logged.
-- `DISPLAY_PREVIEW_LIMIT` (2 KB) / `DISPLAY_PREVIEW_LINES` (40) — terminal
+- `DISPLAY_PREVIEW_LIMIT` (2 KB) / `DISPLAY_PREVIEW_LINES` (10) — terminal
   preview only; the model still receives the full capped result.
 - Truncation always leaves an explicit `...[truncated N chars]` marker.
 
