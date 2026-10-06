@@ -24,7 +24,7 @@ BA [plan]> This project uses a Nix flake...
 - **Streaming** — responses are rendered token-by-token as they arrive.
 - **Markdown rendering** — assistant replies render headings, emphasis, code
   fences (syntax-highlighted when `pygments` is installed), lists, task lists,
-  tables and links while they stream.
+  tables and links (OSC 8 clickable in supported terminals) while they stream.
 - **Wait indicator** — an ASCII spinner is shown while BA is waiting for the
   model's first output of a turn.
 - **Context usage** — the status bar shows tokens used against the context
@@ -138,7 +138,9 @@ Assistant replies are rendered as they stream: headings, bold/italic/strikethrou
 inline and fenced code, lists, task lists, blockquotes, horizontal rules, links
 and tables. Fenced code is syntax-highlighted when `pygments` is installed.
 Partial markers are held only until they resolve, so prose still appears
-token-by-token.
+token-by-token. `http(s)` links are clickable via OSC 8 in terminals that support
+it (Windows Terminal, kitty, WezTerm, iTerm2, VTE-based terminals); elsewhere the
+URL stays visible in grey after the link text.
 
 Known limits: emphasis is not nested, fenced code is highlighted line by line,
 and tables are printed once the table block ends.
@@ -295,6 +297,9 @@ The bundled interpreter is pinned in the workflow's `env` (`PBS_RELEASE`,
 - **The agent refuses to write files** — you are in PLAN mode; press `Tab`.
 - **Garbled output on Windows** — use Windows Terminal; legacy `conhost` has
   limited Unicode/ANSI support.
+- **Links are not clickable** — OSC 8 hyperlinks need a supporting terminal
+  (Windows Terminal, kitty, WezTerm, iTerm2, VTE-based); tmux may need
+  `allow-passthrough`. The URL is always shown in grey after the link text.
 
 ## Project layout
 

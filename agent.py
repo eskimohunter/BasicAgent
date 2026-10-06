@@ -29,10 +29,12 @@ from typing import Any
 from prompt_toolkit import PromptSession
 from prompt_toolkit import print_formatted_text as pt_print
 from prompt_toolkit.application import Application
+from prompt_toolkit.application.current import get_app_session
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.output.vt100 import Vt100_Output
 from prompt_toolkit.shortcuts import clear
 from prompt_toolkit.styles import Style
 
@@ -421,6 +423,24 @@ def _make_lexer(lang: str) -> Any:
         return None
 
 
+OSC8_CLOSE = "\x1b]8;;\x1b\\"
+
+
+def osc8_supported() -> bool:
+    """True when the active prompt_toolkit output understands OSC 8 sequences."""
+    output = get_app_session().output
+    vt = getattr(output, "vt100_output", output)
+    return isinstance(vt, Vt100_Output) and getattr(vt, "term", None) != "dumb"
+
+
+def osc8_open(url: str) -> str | None:
+    """OSC 8 opener for an http(s) URL, with control characters stripped."""
+    if not re.match(r"^https?://", url, re.IGNORECASE):
+        return None
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", "", url)
+    return f"\x1b]8;;{cleaned}\x1b\\"
+
+
 class MarkdownStream:
     """Incremental markdown renderer for streamed assistant text.
 
@@ -687,10 +707,7 @@ class MarkdownStream:
             if paren != -1 and paren < limit:
                 text = self.buffer[start:bracket]
                 url = self.buffer[bracket + 2 : paren]
-                if text:
-                    self._write([("class:md.link", text), ("class:md.link.url", f" ({url})")])
-                else:
-                    self._write([("class:md.link", url)])
+                self._write(self._link_fragments(image, text, url))
                 self.buffer = self.buffer[paren + 1 :]
                 return True
         if line_end == -1 and not final:
@@ -698,6 +715,20 @@ class MarkdownStream:
         self._emit_text("!" if image else "[")
         self.buffer = self.buffer[1:]
         return True
+
+    def _link_fragments(self, image: bool, text: str, url: str) -> list[tuple[str, str]]:
+        if not text:
+            return [("class:md.link", url)]
+        suffix = [("class:md.link.url", f" ({url})")]
+        opener = None if image else osc8_open(url)
+        if opener and osc8_supported():
+            return [
+                ("[ZeroWidthEscape]", opener),
+                ("class:md.link", text),
+                ("[ZeroWidthEscape]", OSC8_CLOSE),
+                *suffix,
+            ]
+        return [("class:md.link", text), *suffix]
 
     def _process_fence(self, final: bool) -> bool:
         if "\n" not in self.buffer:

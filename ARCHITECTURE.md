@@ -172,7 +172,11 @@ quotes, rules, fences, tables) are recognised at line starts, while inline spans
 and partial markers are held only until they resolve, so paragraphs keep
 streaming. Fenced code is highlighted per line through Pygments when available
 (`pygments` is a soft dependency). `finalize` flushes unresolved spans and
-guarantees a trailing newline.
+guarantees a trailing newline. `http(s)` links are emitted as
+`[ZeroWidthEscape]` fragments wrapping the text in OSC 8 sequences when the
+active output is a VT terminal (`osc8_supported`), so prompt_toolkit passes them
+through raw without counting them in the layout; the grey ` (url)` suffix stays
+as a fallback.
 
 ### Interruption
 
