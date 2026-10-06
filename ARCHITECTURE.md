@@ -37,6 +37,7 @@ and refer to the current revision.
 | `Mode` | `agent.py:75` | `PLAN` / `BUILD` enum |
 | `Config` | `agent.py:81` | All runtime settings |
 | `parse_args` | `agent.py:97` | CLI parsing, env fallbacks, precedence |
+| `load_dotenv` | `agent.py:173` | `KEY=VALUE` env files (cwd then app dir), never overriding |
 | `probe_context_window` | `agent.py:241` | Startup context-window probe (`/props`, `/models`) |
 | `AuditLog` | `agent.py:162` | Append-only JSONL writer |
 | `say` / `stream_write` / `Spinner` | `agent.py:265-371` | Terminal output helpers and wait spinner |
@@ -88,8 +89,10 @@ The prompt also embeds workspace project instructions (`Agents.md`, loaded once
 at startup; see §4).
 
 Configuration is immutable after startup. Precedence is CLI > environment >
-default, resolved entirely in `parse_args` (`agent.py:97`). There is no config
-file; environment variables are the intended way to set machine-specific values
+`.env` in the current directory > `.env` next to `agent.py` > default, resolved
+entirely in `parse_args` (`agent.py:97`). `load_dotenv` (`agent.py:173`) fills
+`os.environ` from those files without overriding existing variables, so
+environment variables remain the intended way to set machine-specific values
 such as `AGENT_BASE_URL`.
 
 ## 4. Startup

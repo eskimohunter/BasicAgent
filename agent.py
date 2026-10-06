@@ -170,7 +170,31 @@ class Config:
     context_window_source: str = "unknown"
 
 
+def load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE pairs into os.environ without overriding existing variables."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
 def parse_args(argv: list[str] | None = None) -> Config:
+    load_dotenv(Path.cwd() / ".env")
+    load_dotenv(APP_DIR / ".env")
     parser = argparse.ArgumentParser(
         prog=APP_NAME.lower(),
         description="A basic, auditable LLM coding agent (OpenAI-compatible endpoint).",

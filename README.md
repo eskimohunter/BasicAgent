@@ -199,7 +199,9 @@ confined to the workspace.
 
 ## Configuration
 
-Precedence: CLI argument > environment variable > default.
+Precedence: CLI argument > environment variable > `.env` in the current
+directory > `.env` next to `agent.py` > default. A `.env` file only fills
+variables that are not already set.
 
 | CLI | Environment | Default | Meaning |
 | --- | --- | --- | --- |
@@ -312,6 +314,7 @@ ba.cmd                          Windows launcher for prebuilt bundles
 flake.nix                       nix develop environment (Python + prompt-toolkit + ruff)
 flake.lock                      pinned nixpkgs
 requirements.txt                runtime dependencies for pip (Windows / non-Nix)
+.env.example                    template for the optional .env file
 ARCHITECTURE.md                 internal design and data flow
 .github/dependabot.yml          dependency update configuration
 .github/workflows/release.yml   Windows release pipeline
