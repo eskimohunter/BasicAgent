@@ -199,7 +199,9 @@ confined to the workspace.
 
 ## Configuration
 
-Precedence: CLI argument > environment variable > default.
+Precedence: CLI argument > environment variable > `.env` in the current
+directory > `.env` next to `agent.py` > default. A `.env` file only fills
+variables that are not already set.
 
 | CLI | Environment | Default | Meaning |
 | --- | --- | --- | --- |
@@ -211,6 +213,29 @@ Precedence: CLI argument > environment variable > default.
 | `--summary-model` | `AGENT_SUMMARY_MODEL` | `--model` | Model for command summaries |
 | `--workspace` | — | current directory | Workspace root for tools and shell |
 | — | `AGENT_CONTEXT_WINDOW` | probe | Context window in tokens; `0` probes `/props` then `/models` |
+| — | `AGENT_API_STYLE` | `openai` | `openai` or `openwebui` |
+| — | `OPENWEBUI_EMAIL` | — | Open WebUI login (required with `openwebui`) |
+| — | `OPENWEBUI_PASSWORD` | — | Open WebUI password (required with `openwebui`) |
+
+### Open WebUI
+
+Open WebUI exposes an OpenAI-compatible API at `/api/chat/completions` guarded
+by JWT auth. Point BA at the server root and put the credentials in `.env`:
+
+```sh
+AGENT_BASE_URL=http://192.168.4.36:8080
+AGENT_MODEL=<model configured in Open WebUI>
+AGENT_API_STYLE=openwebui
+OPENWEBUI_EMAIL=you@example.com
+OPENWEBUI_PASSWORD=...
+```
+
+BA signs in lazily at the first request via `POST /api/v1/auths/signin`, caches
+the JWT per endpoint, refreshes it shortly before expiry, and retries once on
+HTTP 401. Credentials and tokens are never logged or shown. Tool calling
+requires native function calling to be enabled in Open WebUI for the chosen
+model; the context-window probe is skipped (set `AGENT_CONTEXT_WINDOW` if you
+want the toolbar denominator).
 
 Before a shell command is shown in the approval prompt, BA asks the summary
 model for a one-line explanation for a junior developer and prints it under
@@ -228,7 +253,7 @@ regardless of the terminal's working directory. One JSON object per line:
 
 | Event | Contents |
 | --- | --- |
-| `session_start` | version, base URL, model, workspace, mode, redacted API key, project instructions path/size, context window/source |
+| `session_start` | version, base URL, model, API style, workspace, mode, redacted API key, project instructions path/size, context window/source |
 | `user_message` | user input |
 | `assistant_message` | assistant text and any tool calls |
 | `command_summary` | command, one-line summary, source (`model` / `cache` / `fallback`) |
@@ -312,6 +337,7 @@ ba.cmd                          Windows launcher for prebuilt bundles
 flake.nix                       nix develop environment (Python + prompt-toolkit + ruff)
 flake.lock                      pinned nixpkgs
 requirements.txt                runtime dependencies for pip (Windows / non-Nix)
+.env.example                    template for the optional .env file
 ARCHITECTURE.md                 internal design and data flow
 .github/dependabot.yml          dependency update configuration
 .github/workflows/release.yml   Windows release pipeline

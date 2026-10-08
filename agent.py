@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -159,6 +160,9 @@ class Config:
     base_url: str = DEFAULT_BASE_URL
     api_key: str = "none"
     model: str = "local-model"
+    api_style: str = "openai"
+    openwebui_email: str = ""
+    openwebui_password: str = ""
     summary_base_url: str = DEFAULT_BASE_URL
     summary_api_key: str = "none"
     summary_model: str = "local-model"
@@ -170,7 +174,31 @@ class Config:
     context_window_source: str = "unknown"
 
 
+def load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE pairs into os.environ without overriding existing variables."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
 def parse_args(argv: list[str] | None = None) -> Config:
+    load_dotenv(Path.cwd() / ".env")
+    load_dotenv(APP_DIR / ".env")
     parser = argparse.ArgumentParser(
         prog=APP_NAME.lower(),
         description="A basic, auditable LLM coding agent (OpenAI-compatible endpoint).",
@@ -214,6 +242,15 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--workspace", default=".", help="Workspace root directory")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     ns = parser.parse_args(argv)
+    api_style = (os.environ.get("AGENT_API_STYLE") or "openai").strip().lower()
+    if api_style not in ("openai", "openwebui"):
+        parser.error(f"AGENT_API_STYLE must be 'openai' or 'openwebui', got {api_style!r}")
+    openwebui_email = os.environ.get("OPENWEBUI_EMAIL", "")
+    openwebui_password = os.environ.get("OPENWEBUI_PASSWORD", "")
+    if api_style == "openwebui" and not (openwebui_email and openwebui_password):
+        parser.error(
+            "AGENT_API_STYLE=openwebui requires OPENWEBUI_EMAIL and OPENWEBUI_PASSWORD"
+        )
     env_context = os.environ.get("AGENT_CONTEXT_WINDOW", "").strip()
     context_window = 0
     if env_context:
@@ -225,6 +262,9 @@ def parse_args(argv: list[str] | None = None) -> Config:
         base_url=ns.base_url.rstrip("/"),
         api_key=ns.api_key,
         model=ns.model,
+        api_style=api_style,
+        openwebui_email=openwebui_email,
+        openwebui_password=openwebui_password,
         summary_base_url=(ns.summary_base_url or ns.base_url).rstrip("/"),
         summary_api_key=ns.summary_api_key or ns.api_key,
         summary_model=ns.summary_model or ns.model,
@@ -237,6 +277,8 @@ def parse_args(argv: list[str] | None = None) -> Config:
 
 def probe_context_window(config: Config) -> tuple[int, str]:
     """Best-effort context window probe. Returns (tokens, source)."""
+    if config.api_style == "openwebui":
+        return 0, "unknown"
     timeout = min(REQUEST_TIMEOUT, 5.0)
     root = config.base_url.removesuffix("/v1")
 
@@ -1472,6 +1514,64 @@ def finalize_tool_calls(calls: dict[int, dict[str, str]]) -> list[dict[str, Any]
     return result
 
 
+_OPENWEBUI_TOKENS: dict[str, tuple[str, float]] = {}
+
+
+def chat_completions_url(base_url: str, api_style: str) -> str:
+    if api_style == "openwebui":
+        return f"{base_url}/api/chat/completions"
+    return f"{base_url}/chat/completions"
+
+
+def openwebui_signin(base_url: str, email: str, password: str) -> tuple[str, float]:
+    """Sign in to Open WebUI; returns (JWT, expiry as a unix timestamp)."""
+    request = urllib.request.Request(
+        f"{base_url}/api/v1/auths/signin",
+        data=json.dumps({"email": email, "password": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            body = json.loads(response.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as exc:
+        raise AgentError(f"Open WebUI sign-in failed: HTTP {exc.code}") from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise AgentError(f"Open WebUI sign-in failed: {exc}") from exc
+    token = body.get("token") if isinstance(body, dict) else None
+    if not isinstance(token, str) or not token:
+        raise AgentError("Open WebUI sign-in failed: no token in response")
+    expires_at = body.get("expires_at")
+    expiry = float(expires_at) if isinstance(expires_at, (int, float)) else float("inf")
+    return token, expiry
+
+
+def openwebui_token(base_url: str, email: str, password: str, *, refresh: bool = False) -> str:
+    cached = _OPENWEBUI_TOKENS.get(base_url)
+    if cached is not None and not refresh:
+        token, expiry = cached
+        if time.time() < expiry - 60:
+            return token
+    token, expiry = openwebui_signin(base_url, email, password)
+    _OPENWEBUI_TOKENS[base_url] = (token, expiry)
+    return token
+
+
+def auth_headers(
+    base_url: str,
+    api_style: str,
+    api_key: str,
+    email: str = "",
+    password: str = "",
+    *,
+    refresh: bool = False,
+) -> dict[str, str]:
+    if api_style == "openwebui":
+        token = openwebui_token(base_url, email, password, refresh=refresh)
+        return {"Authorization": f"Bearer {token}"}
+    return {"Authorization": f"Bearer {api_key}"}
+
+
 def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
     config = app.config
     payload: dict[str, Any] = {
@@ -1484,18 +1584,26 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
         payload["tools"] = schemas
         payload["tool_choice"] = "auto"
 
-    def open_chat(with_stream_options: bool) -> Any:
+    def open_chat(with_stream_options: bool, refresh: bool = False) -> Any:
         if with_stream_options:
             payload["stream_options"] = {"include_usage": True}
         else:
             payload.pop("stream_options", None)
+        headers = {"Content-Type": "application/json"}
+        headers.update(
+            auth_headers(
+                config.base_url,
+                config.api_style,
+                config.api_key,
+                config.openwebui_email,
+                config.openwebui_password,
+                refresh=refresh,
+            )
+        )
         request = urllib.request.Request(
-            f"{config.base_url}/chat/completions",
+            chat_completions_url(config.base_url, config.api_style),
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {config.api_key}",
-            },
+            headers=headers,
             method="POST",
         )
         return urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT)
@@ -1511,14 +1619,23 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
     try:
         response = open_chat(app.stream_usage)
     except urllib.error.HTTPError as exc:
-        if not (app.stream_usage and exc.code == 400):
+        retry_refresh = exc.code == 401 and config.api_style == "openwebui"
+        retry_plain = exc.code == 400 and app.stream_usage
+        if retry_refresh:
+            exc.close()
+            try:
+                response = open_chat(app.stream_usage, refresh=True)
+            except (urllib.error.HTTPError, urllib.error.URLError, OSError) as retry_exc:
+                raise failure(retry_exc) from retry_exc
+        elif retry_plain:
+            app.stream_usage = False
+            exc.close()
+            try:
+                response = open_chat(False)
+            except (urllib.error.HTTPError, urllib.error.URLError, OSError) as retry_exc:
+                raise failure(retry_exc) from retry_exc
+        else:
             raise failure(exc) from exc
-        app.stream_usage = False
-        exc.close()
-        try:
-            response = open_chat(False)
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as retry_exc:
-            raise failure(retry_exc) from retry_exc
     except (urllib.error.URLError, OSError) as exc:
         raise failure(exc) from exc
 
@@ -1625,20 +1742,41 @@ def summarise_command(config: Config, command: str) -> str | None:
         "temperature": 0,
         "stream": False,
     }
-    request = urllib.request.Request(
-        f"{config.summary_base_url}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {config.summary_api_key}",
-        },
-        method="POST",
-    )
-    try:
+    payload_bytes = json.dumps(payload).encode("utf-8")
+    url = chat_completions_url(config.summary_base_url, config.api_style)
+
+    def request_summary(refresh: bool) -> dict[str, Any]:
+        headers = {"Content-Type": "application/json"}
+        headers.update(
+            auth_headers(
+                config.summary_base_url,
+                config.api_style,
+                config.summary_api_key,
+                config.openwebui_email,
+                config.openwebui_password,
+                refresh=refresh,
+            )
+        )
+        request = urllib.request.Request(
+            url, data=payload_bytes, headers=headers, method="POST"
+        )
         with urllib.request.urlopen(request, timeout=SUMMARY_TIMEOUT) as response:
-            data = json.loads(response.read().decode("utf-8", errors="replace"))
-        content = data["choices"][0]["message"]["content"]
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+    try:
+        data = request_summary(False)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401 or config.api_style != "openwebui":
+            return None
+        try:
+            data = request_summary(True)
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            return None
     except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
         return None
     if not isinstance(content, str):
         return None
@@ -1986,7 +2124,10 @@ def print_banner(app: App) -> None:
     if app.config.summary_model_defined:
         model += f" ({app.config.summary_model})"
     say(f"  model:     {model}")
-    say(f"  endpoint:  {app.config.base_url}")
+    endpoint = app.config.base_url
+    if app.config.api_style == "openwebui":
+        endpoint += "  (Open WebUI)"
+    say(f"  endpoint:  {endpoint}")
     say(f"  workspace: {app.config.workspace}")
     say("  /help for commands")
     say("  Ctrl+C to quit")
@@ -2025,6 +2166,7 @@ def main(argv: list[str] | None = None) -> int:
         version=VERSION,
         base_url=config.base_url,
         model=config.model,
+        api_style=config.api_style,
         workspace=str(config.workspace),
         mode=app.mode.value,
         api_key="[redacted]" if config.api_key not in ("", "none") else "[none]",
