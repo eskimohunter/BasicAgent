@@ -1608,14 +1608,19 @@ def build_system_prompt(config: Config, mode: Mode) -> str:
     The mode paragraph is rewritten on every toggle (see App.toggle_mode), so
     the model always sees rules matching the tools it actually has.
     """
+    date = datetime.now().strftime("%Y-%m-%d")
     base = (
         f"You are {APP_NAME}, a coding agent running in the user's terminal.\n"
-        f"Workspace root: {config.workspace}\n\n"
+        f"Workspace root: {config.workspace} (all file paths are confined to it)\n"
+        f"Platform: {sys.platform}\n"
+        f"Date: {date}\n\n"
         "Rules:\n"
-        "- Inspect files with read_file, list_dir and grep before making changes.\n"
-        "- Use write_file and edit_file to modify files.\n"
-        "- To run a shell command, call run_command. The user must approve every command; "
-        "never claim a command ran until you see the tool result.\n"
+        "- Inspect with read_file, list_dir and grep before changing anything; "
+        "use grep and line ranges instead of reading whole large files.\n"
+        "- Run shell commands only via run_command. Never claim a command ran until "
+        "you see its tool result. If the user denies a command, do not retry it; "
+        "ask how to proceed.\n"
+        "- You may include several independent tool calls in one reply.\n"
         "- Tool results beginning with 'ERROR:' indicate failure; read them and adjust.\n"
         "- Keep answers concise and grounded in tool output. Do not invent file contents.\n"
     )
@@ -1632,8 +1637,10 @@ def build_system_prompt(config: Config, mode: Mode) -> str:
         )
     else:
         base += (
-            "\nCurrent mode: BUILD. You may read, write and edit files, and propose shell "
-            "commands. Every shell command requires explicit user approval."
+            "\nCurrent mode: BUILD. You may also write and edit files with write_file "
+            "and edit_file, and propose shell commands. Every command requires "
+            "explicit user approval. Verify changes when possible, e.g. by "
+            "running tests."
         )
     return base
 
