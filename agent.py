@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -33,12 +33,15 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit import print_formatted_text as pt_print
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_session
+from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+from prompt_toolkit.document import Document
+from prompt_toolkit.filters import has_completions
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.output.vt100 import Vt100_Output
-from prompt_toolkit.shortcuts import clear
+from prompt_toolkit.shortcuts import CompleteStyle, clear
 from prompt_toolkit.styles import Style
 
 PYGMENTS_AVAILABLE = False
@@ -2003,6 +2006,53 @@ def handle_command(app: App, text: str) -> bool:
     return False
 
 
+MAX_COMPLETIONS = 200
+
+
+class WorkspacePathCompleter(Completer):
+    """Completes workspace-relative paths for the word under the cursor."""
+
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+
+    def get_completions(
+        self, document: Document, complete_event: CompleteEvent
+    ) -> Iterable[Completion]:
+        match = re.search(r"\S*$", document.text_before_cursor)
+        text = match.group(0) if match else ""
+        if not text or not any(sep in text for sep in "/\\"):
+            return
+        normalized = text.replace("\\", "/")
+        if normalized.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", normalized):
+            return
+        dir_part, _, partial = normalized.rpartition("/")
+        base = (self.workspace / dir_part).resolve() if dir_part else self.workspace
+        try:
+            if not base.is_relative_to(self.workspace) or not base.is_dir():
+                return
+            entries = sorted(
+                base.iterdir(), key=lambda entry: (entry.is_file(), entry.name.lower())
+            )
+        except OSError:
+            return
+        shown = 0
+        for entry in entries:
+            if not entry.name.startswith(partial):
+                continue
+            is_dir = entry.is_dir()
+            if is_dir and entry.name in DEFAULT_EXCLUDES:
+                continue
+            suffix = os.sep if is_dir else ""
+            yield Completion(
+                entry.name + suffix,
+                start_position=-len(partial),
+                display=entry.name + suffix,
+            )
+            shown += 1
+            if shown >= MAX_COMPLETIONS:
+                return
+
+
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
@@ -2105,7 +2155,7 @@ def build_toolbar(app: App) -> FormattedText:
 def build_key_bindings(app: App) -> KeyBindings:
     bindings = KeyBindings()
 
-    @bindings.add("tab")
+    @bindings.add("tab", filter=~has_completions)
     def _toggle_mode(event: Any) -> None:
         app.toggle_mode()
 
@@ -2173,7 +2223,11 @@ def main(argv: list[str] | None = None) -> int:
     if config.context_window <= 0:
         config.context_window, config.context_window_source = probe_context_window(config)
     log = AuditLog()
-    session: PromptSession = PromptSession(style=STYLE)
+    session: PromptSession = PromptSession(
+        style=STYLE,
+        completer=WorkspacePathCompleter(config.workspace),
+        complete_style=CompleteStyle.COLUMN,
+    )
     app = App(config, log, session)
     bindings = build_key_bindings(app)
     log.log(

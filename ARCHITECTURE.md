@@ -52,6 +52,7 @@ and refer to the current revision.
 | `build_system_prompt` | `agent.py:684` | Mode-aware system prompt (incl. project instructions) |
 | `print_startup_instructions` | `agent.py:1862` | Renders `Instructions.md` next to `agent.py` after the banner |
 | `Approvals` | `agent.py:728` | Yes/No button approval gate + allowlist seam |
+| `WorkspacePathCompleter` | `agent.py:2012` | Workspace-relative path completion for the prompt |
 | `StreamResult` | `agent.py:627` | One assistant reply: message dict + interrupted flag |
 | `parse_non_stream_response` | `agent.py:632` | Fallback for servers that ignore `stream: true` |
 | `finalize_tool_calls` | `agent.py:662` | Merge streamed tool-call fragments |
@@ -109,18 +110,22 @@ such as `AGENT_BASE_URL`.
    falls back to unknown.
 4. Open the audit log (unless disabled) and write `session_start` with a
    redacted API key and the resolved context window.
-5. Create the `PromptSession` with the shared style sheet, the `App`, and the
-   Tab key binding.
+5. Create the `PromptSession` with the shared style sheet, the
+   `WorkspacePathCompleter`, the `App`, and the Tab key binding.
 6. Print the ASCII-art `Basic Agent` banner with `Version:`, then the endpoint,
    model (with the summary model in brackets when one is set) and workspace.
 7. Render `Instructions.md` next to `agent.py` as markdown, if present.
 8. Enter the REPL loop.
 
 The REPL loop calls `session.prompt(...)` with the Tab, Esc and Ctrl+C key
-bindings and a `bottom_toolbar` callable. `Esc` resets the input buffer;
-`Ctrl+C` exits with `QuitApp` and `Ctrl+D` raises `EOFError`. Input starting with
-`/` goes to `handle_command`; everything else goes to `run_turn`. The loop ends
-via `/exit`, `Ctrl+C`, `Ctrl+D`, or an uncaught exception, and `session_end` is
+bindings, a `bottom_toolbar` callable, and a `WorkspacePathCompleter` that
+completes path-like words (containing `/` or `\`) from the workspace, hiding
+`DEFAULT_EXCLUDES` directories. The Tab binding is filtered with
+`~has_completions`, so it cycles completions while the menu is open and toggles
+the mode otherwise. `Esc` resets the input buffer; `Ctrl+C` exits with `QuitApp`
+and `Ctrl+D` raises `EOFError`. Input starting with `/` goes to
+`handle_command`; everything else goes to `run_turn`. The loop ends via
+`/exit`, `Ctrl+C`, `Ctrl+D`, or an uncaught exception, and `session_end` is
 always written in a `finally` block.
 
 ## 5. Turn lifecycle

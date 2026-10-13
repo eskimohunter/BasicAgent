@@ -117,10 +117,15 @@ python agent.py --workspace ~/src/myproject
 
 | Key | Action |
 | --- | --- |
-| `Tab` | Toggle PLAN / BUILD mode |
+| `Tab` | Toggle PLAN / BUILD mode; cycles path completions when the menu is open |
 | `Esc` | At the prompt: clear the input. While streaming: interrupt the response |
 | `Ctrl+C` | Quit |
 | `Ctrl+D` | Quit |
+
+Typing a path fragment (a word containing `/` or `\`, e.g. `src/ag`) opens a
+completion menu of workspace files and directories; excluded directories
+(`.git`, `__pycache__`, `node_modules`, virtualenvs, caches) are hidden.
+`Tab`/`↑`/`↓` select, `Shift+Tab` cycles backwards, `Enter` accepts the line.
 
 ### Slash commands
 
