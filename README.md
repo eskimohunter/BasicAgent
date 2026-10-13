@@ -172,7 +172,8 @@ and working directory:
 
 - `←` / `→` — highlight Yes or No (Yes is selected by default).
 - `Enter` — confirm the highlighted choice.
-- `Esc` — deny; the model is told the user denied it.
+- `Esc` — cancel the whole turn and return to the prompt; nothing is sent to
+  the model.
 - `Ctrl+C` / `Ctrl+D` — quit BA.
 
 Every command is approved individually; the prompt does not remember earlier
@@ -258,7 +259,7 @@ regardless of the terminal's working directory. One JSON object per line:
 | `assistant_message` | assistant text and any tool calls |
 | `command_summary` | command, one-line summary, source (`model` / `cache` / `fallback`) |
 | `tool_call` | tool name, full arguments, call id |
-| `approval` | command and decision (`allow` / `deny`) |
+| `approval` | command and decision (`allow` / `deny` / `cancel`) |
 | `tool_result` | call id, success flag, capped output |
 | `mode_change` | new mode |
 | `error` | agent or step-limit errors |

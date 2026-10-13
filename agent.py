@@ -146,6 +146,10 @@ class QuitApp(Exception):
     """Raised to leave the main loop cleanly (Ctrl+C, approval quit)."""
 
 
+class CancelTurn(Exception):
+    """Raised at the approval prompt to abandon the whole turn (Esc)."""
+
+
 class ToolError(Exception):
     """Raised inside tool handlers; converted to an ERROR: result for the model."""
 
@@ -1431,7 +1435,7 @@ class Approvals:
 
         @bindings.add("escape")
         def _cancel(event: Any) -> None:
-            event.app.exit(result=False)
+            event.app.exit(exception=CancelTurn())
 
         @bindings.add("c-c")
         @bindings.add("c-d")
@@ -1849,7 +1853,11 @@ def execute_tool(app: App, call: dict[str, Any]) -> str:
             app.log.log("tool_result", name=name, call_id=call_id, ok=False, content=result)
             return result
         if command not in app.approvals.allowed:
-            allowed = app.approvals.ask(command)
+            try:
+                allowed = app.approvals.ask(command)
+            except CancelTurn:
+                app.log.log("approval", command=command, decision="cancel")
+                raise
             app.log.log("approval", command=command, decision="allow" if allowed else "deny")
             if not allowed:
                 result = "User denied execution of this command."
@@ -1928,25 +1936,32 @@ def run_turn(app: App, user_text: str) -> None:
         if not streamed:
             renderer.finalize()
             stream_write("\n")
-        for call, label, summary in prepared:
-            say(label, "class:tool")
-            if summary:
-                say(f"     {summary}", "class:tool.result")
-            content = execute_tool(app, call)
-            app.messages.append(
-                {"role": "tool", "tool_call_id": call["id"], "content": content}
-            )
-            preview = content
-            if len(preview) > DISPLAY_PREVIEW_LIMIT:
-                preview = (
-                    preview[:DISPLAY_PREVIEW_LIMIT]
-                    + f"\n... [{len(content) - DISPLAY_PREVIEW_LIMIT} more chars]"
+        history_mark = len(app.messages)
+        try:
+            for call, label, summary in prepared:
+                say(label, "class:tool")
+                if summary:
+                    say(f"     {summary}", "class:tool.result")
+                content = execute_tool(app, call)
+                app.messages.append(
+                    {"role": "tool", "tool_call_id": call["id"], "content": content}
                 )
-            preview_lines = preview.splitlines()
-            for line in preview_lines[:DISPLAY_PREVIEW_LINES]:
-                say(f"     {line}", "class:tool.result")
-            if len(preview_lines) > DISPLAY_PREVIEW_LINES:
-                say("     ...", "class:tool.result")
+                preview = content
+                if len(preview) > DISPLAY_PREVIEW_LIMIT:
+                    preview = (
+                        preview[:DISPLAY_PREVIEW_LIMIT]
+                        + f"\n... [{len(content) - DISPLAY_PREVIEW_LIMIT} more chars]"
+                    )
+                preview_lines = preview.splitlines()
+                for line in preview_lines[:DISPLAY_PREVIEW_LINES]:
+                    say(f"     {line}", "class:tool.result")
+                if len(preview_lines) > DISPLAY_PREVIEW_LINES:
+                    say("     ...", "class:tool.result")
+        except CancelTurn:
+            del app.messages[history_mark - 1 :]
+            app.exact_context = 0
+            app.exact_context_at = -1
+            return
     say(f"step limit ({MAX_STEPS}) reached; stopping this turn", "class:warn")
     app.log.log("error", message="step limit reached")
 

@@ -369,7 +369,7 @@ The set is empty for now; it is the seam for a future config-file allowlist.
                                       │
                      Enter on Yes ────┤ execute
                      Enter on No ─────┤ deny  → "User denied execution..."
-                     Esc ─────────────┘ deny
+                     Esc ─────────────┘ cancel turn → clean prompt
 ```
 
 Properties:
@@ -420,6 +420,7 @@ never break logging.
 | `ToolError` from a handler | `ERROR:` tool result |
 | Unexpected handler exception | `ERROR: <tool> failed: ...` tool result |
 | `Esc` while streaming | Partial reply kept; tool calls dropped |
+| `Esc` at the approval prompt | Turn cancelled (`approval: cancel`); the dangling assistant tool-call step is dropped from history |
 | `Ctrl+C` during a command | BA quits (child receives SIGINT) |
 | `Ctrl+C` elsewhere in a turn | Quits `main` cleanly via `KeyboardInterrupt`/`QuitApp` |
 | Step limit reached | Warning printed and logged |
