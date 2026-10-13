@@ -8,10 +8,14 @@
 - [x] Spinner when BA turn but no response yet
 - [x] Read Agents.md
 - [x] BA.png to README
-- [ ] Look at Opencode base prompt + plan/build mode
+- [x] Review System Prompt
+- [ ] Review Summary prompt
 - [x] Logs in application directory not project
 - [x] Refused to read ‘binary file’ .xml
 - [x] Display context usage in the toolbar
 - [x] Bump Python to 3.14
 - [ ] Generate gif for docs automatically
 - [x] If an Instructions.md is present in the tool directory then display that after the banner
+- [ ] Tidy up constants spread through agent.py
+- [ ] Run opencodereview
+- [ ] Check behavior of toolbar on Windows
