@@ -32,7 +32,7 @@ and refer to the current revision.
 
 | Component | Location | Responsibility |
 | --- | --- | --- |
-| Constants | `agent.py:32-65` | Limits and the prompt_toolkit style sheet |
+| Constants | `agent.py:58-279` | Identity, limits, timeouts, UI text, wire-format values, markdown patterns and the style sheet |
 | `AgentError` / `ToolError` | `agent.py:67-72` | User-facing failure vs. model-visible tool failure |
 | `Mode` | `agent.py:75` | `PLAN` / `BUILD` enum |
 | `Config` | `agent.py:81` | All runtime settings |

@@ -55,38 +55,17 @@ try:
 except ImportError:
     pass
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Identity and paths.
 APP_NAME = "BA"
 VERSION = "0.8.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 INSTRUCTIONS_FILE = APP_DIR / "Instructions.md"
-DEFAULT_BASE_URL = "http://localhost:8080/v1"
-# Guardrails bounding how much text one tool call, file, or reply can inject
-# into the conversation, so a single bad result cannot flood the context window.
-TOOL_RESULT_LIMIT = 64_000
-# The user sees only a short preview of each tool result; the model receives
-# the full (capped) text.
-DISPLAY_PREVIEW_LIMIT = 2_000
-DISPLAY_PREVIEW_LINES = 10
-READ_MAX_LINES = 2_000
-# Files larger than this are skipped by grep: usually generated or binary.
-GREP_MAX_FILE_BYTES = 2_000_000
-FETCH_MAX_BYTES = 100_000
-REQUEST_TIMEOUT = 120.0
-COMMAND_TIMEOUT = 60
-# Bounds the tool-call loop so a model stuck repeating itself stops eventually.
-MAX_STEPS = 25
-# Command summaries must not delay the approval prompt, so the timeout is short.
-SUMMARY_TIMEOUT = 5.0
-# System prompt for the auxiliary model that explains pending shell commands
-# at the approval prompt.
-SUMMARY_PROMPT = (
-    "You explain shell commands to a junior developer. Reply with exactly one "
-    "sentence describing what the command does and any important "
-    "side effects. No markdown, no code formatting, no preamble. "
-    "don't just repeat the command; explain it in plain English. "
-    "If the command is dangerous make that clear"
-)
+# Instructions.md larger than this is cut before it reaches the system prompt.
 INSTRUCTIONS_MAX_BYTES = 32_000
 # Directory names treated as noise: skipped by grep and by path completion.
 DEFAULT_EXCLUDES = {
@@ -98,6 +77,156 @@ DEFAULT_EXCLUDES = {
     ".ruff_cache",
     ".pytest_cache",
 }
+
+# Endpoint defaults and API-style sentinels.
+DEFAULT_BASE_URL = "http://localhost:8080/v1"
+DEFAULT_MODEL = "local-model"
+DEFAULT_API_KEY = "none"
+API_STYLE_OPENAI = "openai"
+API_STYLE_OPENWEBUI = "openwebui"
+
+# Guardrails bounding how much text one tool call, file, or reply can inject
+# into the conversation, so a single bad result cannot flood the context window.
+TOOL_RESULT_LIMIT = 64_000
+# The user sees only a short preview of each tool result; the model receives
+# the full (capped) text.
+DISPLAY_PREVIEW_LIMIT = 2_000
+DISPLAY_PREVIEW_LINES = 10
+READ_MAX_LINES = 2_000
+# Files larger than this are skipped by grep: usually generated or binary.
+GREP_MAX_FILE_BYTES = 2_000_000
+# Longest grep hit line kept; one-liner files would otherwise flood the reply.
+GREP_HIT_CHARS = 300
+# Defaults for tool arguments the model may omit; explicit values are clamped
+# to the *_MAX bounds.
+GREP_DEFAULT_MAX_RESULTS = 100
+GREP_MAX_RESULTS = 1_000
+FETCH_MIN_BYTES = 1_000
+FETCH_MAX_BYTES = 100_000
+FETCH_MAX_BYTES_LIMIT = 1_000_000
+# Tool arguments in the "-> tool ..." display line are capped at this length.
+TOOL_LABEL_CHARS = 200
+# Bounds the tool-call loop so a model stuck repeating itself stops eventually.
+MAX_STEPS = 25
+
+# Excerpts of failed responses kept for the user or for the model to read.
+HTTP_ERROR_EXCERPT = 1_000
+SERVER_ERROR_EXCERPT = 500
+STREAM_ERROR_EXCERPT = 2_000
+
+# Timeouts and polling intervals, in seconds.
+REQUEST_TIMEOUT = 120.0
+# Startup must not hang on a dead server: the probe gets 5s at most.
+PROBE_TIMEOUT = 5.0
+COMMAND_TIMEOUT = 60
+# Ceiling for a model-supplied timeout_seconds.
+COMMAND_MAX_TIMEOUT = 600
+# Command summaries must not delay the approval prompt, so the timeout is short.
+SUMMARY_TIMEOUT = 5.0
+# How often the Esc watcher polls stdin; stop() must join the thread promptly.
+KEY_POLL_INTERVAL = 0.1
+# Open WebUI JWTs are refreshed this long before they expire.
+JWT_REFRESH_MARGIN = 60
+
+# System prompt for the auxiliary model that explains pending shell commands
+# at the approval prompt.
+SUMMARY_PROMPT = (
+    "You explain shell commands to a junior developer. Reply with exactly one "
+    "sentence describing what the command does and any important "
+    "side effects. No markdown, no code formatting, no preamble. "
+    "don't just repeat the command; explain it in plain English. "
+    "If the command is dangerous make that clear"
+)
+
+# Spinner shown while waiting for the first output of a turn.
+SPINNER_FRAMES = "|/-\\"
+SPINNER_INTERVAL = 0.08
+# Delay before the first frame: fast responses never show a spinner, avoiding
+# a flicker on every turn.
+SPINNER_GRACE = 0.15
+
+# Terminal and TUI.
+# Fallback when the terminal does not report a size.
+TERMINAL_FALLBACK_SIZE = (80, 24)
+# Horizontal rules are capped so wide terminals do not underline the world.
+HR_MAX_WIDTH = 40
+# Width of the "+-- run_command --" approval box, in characters.
+APPROVAL_BOX_WIDTH = 63
+# Caps the completion popup on huge directories.
+MAX_COMPLETIONS = 200
+BANNER = (
+    " _____           _",
+    "|  __ \\         / \\",
+    "| |__) |       / _ \\",
+    "|  __ <       / ___ \\",
+    "| |__) |     / /   \\ \\",
+    "|_____/ asic \\/     \\/ gent",
+)
+
+# Toolbar context gauge.
+# Rough chars-per-token ratio for English-plus-code text; good enough for a
+# progress indicator, not for billing.
+CHARS_PER_TOKEN = 4
+# Per-message framing tokens (role, separators) the wire format adds.
+MESSAGE_TOKEN_OVERHEAD = 4
+TOKENS_PER_K = 1_000
+# The gauge warns at 80% of the context window and highlights at 95%.
+CONTEXT_WARN_RATIO = 0.8
+CONTEXT_HOT_RATIO = 0.95
+
+# Wire format.
+# OSC 8 hyperlink sequences: open prefix, string terminator, close marker.
+OSC8_OPEN = "\x1b]8;;"
+OSC8_ST = "\x1b\\"
+OSC8_CLOSE = OSC8_OPEN + OSC8_ST
+# SSE frames are "data: {...}" lines ended by a blank line, then "data: [DONE]".
+SSE_DATA_PREFIX = "data:"
+SSE_DONE = "[DONE]"
+SSE_CONTENT_TYPE = "text/event-stream"
+# BOM detection order matters: the 4-byte UTF-32 BOMs must precede the 2-byte
+# UTF-16 ones, which are prefixes of them.
+TEXT_BOMS = (
+    (b"\xff\xfe\x00\x00", "utf-32"),
+    (b"\x00\x00\xfe\xff", "utf-32"),
+    (b"\xef\xbb\xbf", "utf-8-sig"),
+    (b"\xff\xfe", "utf-16"),
+    (b"\xfe\xff", "utf-16"),
+)
+# BOM-less UTF-16 heuristic: bytes sampled, and NUL-byte ratios in the even
+# and odd byte positions that distinguish UTF-16 text from binary data.
+BOM_SAMPLE_BYTES = 8192
+UTF16_NUL_MAJORITY = 0.3
+UTF16_NUL_MINORITY = 0.05
+
+# Block-level patterns for the incremental markdown renderer. They are matched
+# only at line start; inline markup is handled by RE_INLINE.
+RE_HEADING = re.compile(r"^(#{1,6})[ \t]+")
+RE_FENCE = re.compile(r"^(`{3,}|~{3,})(.*)")
+RE_HR = re.compile(r"^(-{3,}|\*{3,}|_{3,})[ \t]*$")
+RE_QUOTE = re.compile(r"^>[ \t]?")
+RE_TASK = re.compile(r"^( *)[-*+][ \t]+\[([ xX])\][ \t]+")
+RE_ULIST = re.compile(r"^( *)[-*+][ \t]+")
+RE_OLIST = re.compile(r"^( *)(\d{1,9})[.)][ \t]+")
+RE_TABLE = re.compile(r"^ {0,3}\|")
+RE_INLINE = re.compile(r"[*_`~\[!\\\n]")
+# Matches strings that could still grow into a block marker once more input
+# arrives. While the buffer matches, the renderer holds the text back instead
+# of emitting it, so a streamed "#" never flashes as literal text before the
+# rest of "## Heading" lands.
+RE_POTENTIAL_PREFIX = re.compile(
+    r"^(?:"
+    r"#{0,6}"
+    r"|[-*+>|]"
+    r"|-{2}"
+    r"|\*{2}"
+    r"|_{1,2}"
+    r"|`{1,2}"
+    r"|~{1,2}"
+    r"|\d{1,9}[.)]?"
+    r"|[-*+][ \t]+"
+    r"|[-*+][ \t]+\[[ xX]?\]?"
+    r")$"
+)
 
 STYLE = Style.from_dict(
     {
@@ -183,14 +312,14 @@ class Config:
     """
 
     base_url: str = DEFAULT_BASE_URL
-    api_key: str = "none"
-    model: str = "local-model"
-    api_style: str = "openai"
+    api_key: str = DEFAULT_API_KEY
+    model: str = DEFAULT_MODEL
+    api_style: str = API_STYLE_OPENAI
     openwebui_email: str = ""
     openwebui_password: str = ""
     summary_base_url: str = DEFAULT_BASE_URL
-    summary_api_key: str = "none"
-    summary_model: str = "local-model"
+    summary_api_key: str = DEFAULT_API_KEY
+    summary_model: str = DEFAULT_MODEL
     summary_model_defined: bool = False
     workspace: Path = field(default_factory=Path.cwd)
     project_instructions: str | None = None
@@ -267,14 +396,14 @@ def parse_args(argv: list[str] | None = None) -> Config:
         "--api-key",
         default=os.environ.get("AGENT_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
-        or "none",
+        or DEFAULT_API_KEY,
         help="API key sent as Bearer token (default: none)",
     )
     parser.add_argument(
         "--model",
         default=os.environ.get("AGENT_MODEL")
         or os.environ.get("OPENAI_MODEL")
-        or "local-model",
+        or DEFAULT_MODEL,
         help="Model name to request",
     )
     parser.add_argument(
@@ -295,12 +424,15 @@ def parse_args(argv: list[str] | None = None) -> Config:
     parser.add_argument("--workspace", default=".", help="Workspace root directory")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {VERSION}")
     ns = parser.parse_args(argv)
-    api_style = (os.environ.get("AGENT_API_STYLE") or "openai").strip().lower()
-    if api_style not in ("openai", "openwebui"):
-        parser.error(f"AGENT_API_STYLE must be 'openai' or 'openwebui', got {api_style!r}")
+    api_style = (os.environ.get("AGENT_API_STYLE") or API_STYLE_OPENAI).strip().lower()
+    if api_style not in (API_STYLE_OPENAI, API_STYLE_OPENWEBUI):
+        parser.error(
+            f"AGENT_API_STYLE must be {API_STYLE_OPENAI!r} or {API_STYLE_OPENWEBUI!r}, "
+            f"got {api_style!r}"
+        )
     openwebui_email = os.environ.get("OPENWEBUI_EMAIL", "")
     openwebui_password = os.environ.get("OPENWEBUI_PASSWORD", "")
-    if api_style == "openwebui" and not (openwebui_email and openwebui_password):
+    if api_style == API_STYLE_OPENWEBUI and not (openwebui_email and openwebui_password):
         parser.error(
             "AGENT_API_STYLE=openwebui requires OPENWEBUI_EMAIL and OPENWEBUI_PASSWORD"
         )
@@ -344,10 +476,9 @@ def probe_context_window(config: Config) -> tuple[int, str]:
         A ``(tokens, source)`` pair; ``(0, "unknown")`` when nothing reports a
         usable value, which the toolbar then shows as no known limit.
     """
-    if config.api_style == "openwebui":
+    if config.api_style == API_STYLE_OPENWEBUI:
         return 0, "unknown"
-    # Startup must not hang on a dead server: the probe gets 5s at most.
-    timeout = min(REQUEST_TIMEOUT, 5.0)
+    timeout = min(REQUEST_TIMEOUT, PROBE_TIMEOUT)
     # llama.cpp serves /props at the server root, outside the /v1 API prefix.
     root = config.base_url.removesuffix("/v1")
 
@@ -446,13 +577,6 @@ def stream_write(text: str) -> None:
     pt_print(text, end="", flush=True, style=STYLE)
 
 
-SPINNER_FRAMES = "|/-\\"
-SPINNER_INTERVAL = 0.08
-# Delay before the first frame: fast responses never show a spinner, avoiding
-# a flicker on every turn.
-SPINNER_GRACE = 0.15
-
-
 class Spinner:
     """Animates a glyph on the current line until stopped.
 
@@ -539,8 +663,7 @@ class KeyWatcher:
         try:
             tty.setcbreak(fd)
             while not self._stop.is_set():
-                # Short poll interval so stop() joins the thread promptly.
-                ready, _, _ = select.select([fd], [], [], 0.1)
+                ready, _, _ = select.select([fd], [], [], KEY_POLL_INTERVAL)
                 if ready and os.read(fd, 1) == b"\x1b":
                     self._interrupt()
                     return
@@ -555,7 +678,7 @@ class KeyWatcher:
             if msvcrt.kbhit() and msvcrt.getch() == b"\x1b":
                 self._interrupt()
                 return
-            self._stop.wait(0.05)
+            self._stop.wait(KEY_POLL_INTERVAL)
 
     def _interrupt(self) -> None:
         """Mark the stream as Esc-cancelled and unblock the HTTP read.
@@ -566,36 +689,6 @@ class KeyWatcher:
         self.escaped.set()
         signal.raise_signal(signal.SIGINT)
 
-
-# Block-level patterns for the incremental markdown renderer below. They are
-# matched only at line start; inline markup is handled by RE_INLINE.
-RE_HEADING = re.compile(r"^(#{1,6})[ \t]+")
-RE_FENCE = re.compile(r"^(`{3,}|~{3,})(.*)")
-RE_HR = re.compile(r"^(-{3,}|\*{3,}|_{3,})[ \t]*$")
-RE_QUOTE = re.compile(r"^>[ \t]?")
-RE_TASK = re.compile(r"^( *)[-*+][ \t]+\[([ xX])\][ \t]+")
-RE_ULIST = re.compile(r"^( *)[-*+][ \t]+")
-RE_OLIST = re.compile(r"^( *)(\d{1,9})[.)][ \t]+")
-RE_TABLE = re.compile(r"^ {0,3}\|")
-RE_INLINE = re.compile(r"[*_`~\[!\\\n]")
-# Matches strings that could still grow into a block marker once more input
-# arrives. While the buffer matches, the renderer holds the text back instead
-# of emitting it, so a streamed "#" never flashes as literal text before the
-# rest of "## Heading" lands.
-RE_POTENTIAL_PREFIX = re.compile(
-    r"^(?:"
-    r"#{0,6}"
-    r"|[-*+>|]"
-    r"|-{2}"
-    r"|\*{2}"
-    r"|_{1,2}"
-    r"|`{1,2}"
-    r"|~{1,2}"
-    r"|\d{1,9}[.)]?"
-    r"|[-*+][ \t]+"
-    r"|[-*+][ \t]+\[[ xX]?\]?"
-    r")$"
-)
 
 _TOKEN_STYLE_CACHE: list[tuple[Any, str]] | None = None
 
@@ -630,9 +723,6 @@ def _make_lexer(lang: str) -> Any:
         return None
 
 
-OSC8_CLOSE = "\x1b]8;;\x1b\\"
-
-
 def osc8_supported() -> bool:
     """True when the active prompt_toolkit output understands OSC 8 sequences."""
     output = get_app_session().output
@@ -649,7 +739,7 @@ def osc8_open(url: str) -> str | None:
     if not re.match(r"^https?://", url, re.IGNORECASE):
         return None
     cleaned = re.sub(r"[\x00-\x1f\x7f]", "", url)
-    return f"\x1b]8;;{cleaned}\x1b\\"
+    return f"{OSC8_OPEN}{cleaned}{OSC8_ST}"
 
 
 class MarkdownStream:
@@ -663,7 +753,7 @@ class MarkdownStream:
 
     def __init__(self, emit: Callable[[list[tuple[str, str]]], None], width: int | None = None):
         self.emit = emit
-        self.width = width or shutil.get_terminal_size((80, 24)).columns
+        self.width = width or shutil.get_terminal_size(TERMINAL_FALLBACK_SIZE).columns
         self.buffer = ""
         self.at_line_start = True
         self.line_style = ""
@@ -767,7 +857,7 @@ class MarkdownStream:
         first_line = self.buffer[:newline] if newline != -1 else self.buffer
         if RE_HR.match(first_line) and (newline != -1 or final):
             self.buffer = self.buffer[newline + 1 :] if newline != -1 else ""
-            self._write([("class:md.hr", "─" * min(self.width, 40) + "\n")])
+            self._write([("class:md.hr", "─" * min(self.width, HR_MAX_WIDTH) + "\n")])
             self.at_line_start = True
             return True
         # "---" could still grow into a rule or list item; wait for the line
@@ -1133,29 +1223,18 @@ def is_excluded(path: Path, root: Path) -> bool:
     return any(part in DEFAULT_EXCLUDES for part in rel.parts[:-1])
 
 
-# Order matters: the 4-byte UTF-32 BOMs must precede the 2-byte UTF-16 ones,
-# which are prefixes of them.
-TEXT_BOMS = (
-    (b"\xff\xfe\x00\x00", "utf-32"),
-    (b"\x00\x00\xfe\xff", "utf-32"),
-    (b"\xef\xbb\xbf", "utf-8-sig"),
-    (b"\xff\xfe", "utf-16"),
-    (b"\xfe\xff", "utf-16"),
-)
-
-
 def looks_like_utf16(raw: bytes) -> str | None:
     """Guess a BOM-less UTF-16 byte order from NUL-byte positions."""
-    sample = raw[:8192]
+    sample = raw[:BOM_SAMPLE_BYTES]
     if len(sample) < 4:
         return None
     even_nul = sample[0::2].count(0) / len(sample[0::2])
     odd_nul = sample[1::2].count(0) / len(sample[1::2])
-    # ASCII-heavy UTF-16 has NULs in nearly every other byte; the 30%/5%
-    # thresholds tolerate a sprinkling of non-ASCII characters.
-    if odd_nul > 0.3 and even_nul < 0.05:
+    # ASCII-heavy UTF-16 has NULs in nearly every other byte; the thresholds
+    # tolerate a sprinkling of non-ASCII characters.
+    if odd_nul > UTF16_NUL_MAJORITY and even_nul < UTF16_NUL_MINORITY:
         return "utf-16-le"
-    if even_nul > 0.3 and odd_nul < 0.05:
+    if even_nul > UTF16_NUL_MAJORITY and odd_nul < UTF16_NUL_MINORITY:
         return "utf-16-be"
     return None
 
@@ -1170,7 +1249,7 @@ def decode_text(raw: bytes) -> str | None:
     for bom, encoding in TEXT_BOMS:
         if raw.startswith(bom):
             return raw.decode(encoding, errors="replace")
-    if b"\x00" not in raw[:8192]:
+    if b"\x00" not in raw[:BOM_SAMPLE_BYTES]:
         return raw.decode("utf-8", errors="replace")
     encoding = looks_like_utf16(raw)
     if encoding:
@@ -1259,7 +1338,7 @@ def tool_grep(
     path: str = ".",
     include: str = "*",
     ignore_case: bool = False,
-    max_results: int = 100,
+    max_results: int = GREP_DEFAULT_MAX_RESULTS,
 ) -> str:
     """Search workspace files for a regex and return matching lines.
 
@@ -1288,7 +1367,7 @@ def tool_grep(
         rx = re.compile(pattern, flags)
     except re.error as exc:
         raise ToolError(f"invalid regular expression: {exc}") from exc
-    limit = max(1, min(int(max_results), 1000))
+    limit = max(1, min(int(max_results), GREP_MAX_RESULTS))
     if base.is_file():
         candidates = [base]
     else:
@@ -1311,8 +1390,7 @@ def tool_grep(
         for lineno, line in enumerate(text.splitlines(), start=1):
             if rx.search(line):
                 rel = candidate.relative_to(base) if base.is_dir() else candidate.name
-                # [:300] keeps hits from minified one-liner files readable.
-                hits.append(f"{rel}:{lineno}: {line.strip()[:300]}")
+                hits.append(f"{rel}:{lineno}: {line.strip()[:GREP_HIT_CHARS]}")
                 if len(hits) >= limit:
                     break
     if not hits:
@@ -1342,7 +1420,7 @@ def tool_fetch_url(config: Config, url: str, max_bytes: int = FETCH_MAX_BYTES) -
     """
     if not re.match(r"^https?://", url, re.IGNORECASE):
         raise ToolError("only http(s) URLs are supported")
-    limit = max(1000, min(int(max_bytes), 1_000_000))
+    limit = max(FETCH_MIN_BYTES, min(int(max_bytes), FETCH_MAX_BYTES_LIMIT))
     request = urllib.request.Request(url, headers={"User-Agent": f"{APP_NAME}/{VERSION}"})
     try:
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT) as response:
@@ -1352,7 +1430,7 @@ def tool_fetch_url(config: Config, url: str, max_bytes: int = FETCH_MAX_BYTES) -
             charset = response.headers.get_content_charset() or "utf-8"
             status = response.status
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:1000]
+        body = exc.read().decode("utf-8", errors="replace")[:HTTP_ERROR_EXCERPT]
         return f"ERROR: HTTP {exc.code} for {url}\n{body}"
     except urllib.error.URLError as exc:
         raise ToolError(f"cannot fetch {url}: {exc.reason}") from exc
@@ -1441,7 +1519,7 @@ def tool_run_command(config: Config, command: str, timeout_seconds: int = 0) -> 
     if not command.strip():
         raise ToolError("command must not be empty")
     timeout = int(timeout_seconds) if int(timeout_seconds) > 0 else COMMAND_TIMEOUT
-    timeout = max(1, min(timeout, 600))
+    timeout = max(1, min(timeout, COMMAND_MAX_TIMEOUT))
     try:
         proc = subprocess.run(
             command,
@@ -1675,14 +1753,15 @@ class Approvals:
             CancelTurn: The user pressed Esc, abandoning the whole turn.
             QuitApp: The user pressed Ctrl+C/Ctrl+D, leaving the app.
         """
+        heading = "+-- run_command"
         lines = [
             "",
-            "+-- run_command " + "-" * 47,
+            heading + " " + "-" * (APPROVAL_BOX_WIDTH - len(heading) - 1),
             f"| cwd: {self.config.workspace}",
         ]
         for command_line in command.splitlines() or [""]:
             lines.append(f"| $ {command_line}")
-        lines.append("+" + "-" * 62)
+        lines.append("+" + "-" * (APPROVAL_BOX_WIDTH - 1))
         say("\n".join(lines), "class:warn")
 
         options = [("Yes", True), ("No", False)]
@@ -1770,12 +1849,14 @@ def parse_non_stream_response(body: str) -> tuple[dict[str, Any], dict[str, Any]
     try:
         obj = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise AgentError(f"unexpected non-JSON response: {body[:500]}") from exc
+        raise AgentError(
+            f"unexpected non-JSON response: {body[:SERVER_ERROR_EXCERPT]}"
+        ) from exc
     if isinstance(obj, dict) and "error" in obj:
-        raise AgentError(f"server error: {json.dumps(obj['error'])[:500]}")
+        raise AgentError(f"server error: {json.dumps(obj['error'])[:SERVER_ERROR_EXCERPT]}")
     choices = obj.get("choices") or []
     if not choices:
-        raise AgentError(f"no choices in response: {body[:500]}")
+        raise AgentError(f"no choices in response: {body[:SERVER_ERROR_EXCERPT]}")
     msg = choices[0].get("message") or {}
     tool_calls = []
     for index, call in enumerate(msg.get("tool_calls") or []):
@@ -1825,7 +1906,7 @@ _OPENWEBUI_TOKENS: dict[str, tuple[str, float]] = {}
 
 def chat_completions_url(base_url: str, api_style: str) -> str:
     """Return the completions endpoint; Open WebUI mounts it under /api."""
-    if api_style == "openwebui":
+    if api_style == API_STYLE_OPENWEBUI:
         return f"{base_url}/api/chat/completions"
     return f"{base_url}/chat/completions"
 
@@ -1863,7 +1944,7 @@ def openwebui_token(base_url: str, email: str, password: str, *, refresh: bool =
     cached = _OPENWEBUI_TOKENS.get(base_url)
     if cached is not None and not refresh:
         token, expiry = cached
-        if time.time() < expiry - 60:
+        if time.time() < expiry - JWT_REFRESH_MARGIN:
             return token
     token, expiry = openwebui_signin(base_url, email, password)
     _OPENWEBUI_TOKENS[base_url] = (token, expiry)
@@ -1880,7 +1961,7 @@ def auth_headers(
     refresh: bool = False,
 ) -> dict[str, str]:
     """Return the Authorization header for the configured API style."""
-    if api_style == "openwebui":
+    if api_style == API_STYLE_OPENWEBUI:
         token = openwebui_token(base_url, email, password, refresh=refresh)
         return {"Authorization": f"Bearer {token}"}
     return {"Authorization": f"Bearer {api_key}"}
@@ -1943,7 +2024,7 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
 
     def failure(exc: Exception) -> AgentError:
         if isinstance(exc, urllib.error.HTTPError):
-            body = exc.read().decode("utf-8", errors="replace")[:2000]
+            body = exc.read().decode("utf-8", errors="replace")[:STREAM_ERROR_EXCERPT]
             return AgentError(f"HTTP {exc.code} from {config.base_url}: {body}")
         if isinstance(exc, urllib.error.URLError):
             return AgentError(f"cannot reach {config.base_url}: {exc.reason}")
@@ -1955,7 +2036,7 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
         # 401 with Open WebUI usually means an expired JWT: sign in once more.
         # 400 with stream_options means the server predates that field: drop
         # it for the rest of the session.
-        retry_refresh = exc.code == 401 and config.api_style == "openwebui"
+        retry_refresh = exc.code == 401 and config.api_style == API_STYLE_OPENWEBUI
         retry_plain = exc.code == 400 and app.stream_usage
         if retry_refresh:
             exc.close()
@@ -1986,7 +2067,7 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
             content_type = (response.headers.get("Content-Type") or "").lower()
             # Servers that ignore "stream" answer with plain JSON; normalize
             # it and skip the SSE loop entirely.
-            if "text/event-stream" not in content_type:
+            if SSE_CONTENT_TYPE not in content_type:
                 body = response.read().decode("utf-8", errors="replace")
                 message, usage = parse_non_stream_response(body)
                 if message.get("content"):
@@ -1994,10 +2075,10 @@ def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
                 return StreamResult(message=message, usage=usage)
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line.startswith("data:"):
+                if not line.startswith(SSE_DATA_PREFIX):
                     continue
-                chunk_text = line[5:].strip()
-                if chunk_text == "[DONE]":
+                chunk_text = line[len(SSE_DATA_PREFIX) :].strip()
+                if chunk_text == SSE_DONE:
                     break
                 try:
                     chunk = json.loads(chunk_text)
@@ -2065,14 +2146,14 @@ def summarise_args(call: dict[str, Any]) -> str:
     try:
         args = json.loads(raw)
     except json.JSONDecodeError:
-        return str(raw)[:200]
+        return str(raw)[:TOOL_LABEL_CHARS]
     if not isinstance(args, dict):
-        return str(args)[:200]
+        return str(args)[:TOOL_LABEL_CHARS]
     if "command" in args:
         return str(args["command"])
     if "path" in args:
         return str(args["path"])
-    return json.dumps(args, ensure_ascii=False)[:200]
+    return json.dumps(args, ensure_ascii=False)[:TOOL_LABEL_CHARS]
 
 
 def summarise_command(config: Config, command: str) -> str | None:
@@ -2115,7 +2196,7 @@ def summarise_command(config: Config, command: str) -> str | None:
     try:
         data = request_summary(False)
     except urllib.error.HTTPError as exc:
-        if exc.code != 401 or config.api_style != "openwebui":
+        if exc.code != 401 or config.api_style != API_STYLE_OPENWEBUI:
             return None
         try:
             data = request_summary(True)
@@ -2386,10 +2467,6 @@ def handle_command(app: App, text: str) -> bool:
     return False
 
 
-# Caps the completion popup on huge directories.
-MAX_COMPLETIONS = 200
-
-
 class WorkspacePathCompleter(Completer):
     """Completes workspace-relative paths for the word under the cursor."""
 
@@ -2502,13 +2579,6 @@ class App:
         say(f"mode: {self.mode.value.upper()}", "class:info")
 
 
-# Rough chars-per-token ratio for English-plus-code text; good enough for a
-# progress indicator, not for billing.
-CHARS_PER_TOKEN = 4
-# Per-message framing tokens (role, separators) the wire format adds.
-MESSAGE_TOKEN_OVERHEAD = 4
-
-
 def estimate_tokens(
     messages: list[dict[str, Any]],
     schemas: list[dict[str, Any]] | None = None,
@@ -2521,9 +2591,9 @@ def estimate_tokens(
 
 def format_tokens(count: int) -> str:
     """Format a token count compactly for the toolbar (1234 -> "1.2k")."""
-    if count < 1000:
+    if count < TOKENS_PER_K:
         return str(count)
-    return f"{count / 1000:.1f}k"
+    return f"{count / TOKENS_PER_K:.1f}k"
 
 
 def context_tokens(app: App) -> tuple[int, bool]:
@@ -2549,9 +2619,9 @@ def build_toolbar(app: App) -> FormattedText:
     if app.config.context_window:
         label += f"/{format_tokens(app.config.context_window)}"
         ratio = tokens / app.config.context_window
-        if ratio >= 0.95:
+        if ratio >= CONTEXT_HOT_RATIO:
             style = "class:ctx.hot"
-        elif ratio >= 0.8:
+        elif ratio >= CONTEXT_WARN_RATIO:
             style = "class:ctx.warn"
     return FormattedText(
         [
@@ -2583,16 +2653,6 @@ def build_key_bindings(app: App) -> KeyBindings:
     return bindings
 
 
-BANNER = (
-    " _____           _",
-    "|  __ \\         / \\",
-    "| |__) |       / _ \\",
-    "|  __ <       / ___ \\",
-    "| |__) |     / /   \\ \\",
-    "|_____/ asic \\/     \\/ gent",
-)
-
-
 def print_banner(app: App) -> None:
     """Show the ASCII banner and the resolved runtime settings."""
     for line in BANNER:
@@ -2604,7 +2664,7 @@ def print_banner(app: App) -> None:
         model += f" ({app.config.summary_model})"
     say(f"  model:     {model}")
     endpoint = app.config.base_url
-    if app.config.api_style == "openwebui":
+    if app.config.api_style == API_STYLE_OPENWEBUI:
         endpoint += "  (Open WebUI)"
     say(f"  endpoint:  {endpoint}")
     say(f"  workspace: {app.config.workspace}")
@@ -2662,7 +2722,7 @@ def main(argv: list[str] | None = None) -> int:
         workspace=str(config.workspace),
         mode=app.mode.value,
         # The audit log records whether a key was set, never the key itself.
-        api_key="[redacted]" if config.api_key not in ("", "none") else "[none]",
+        api_key="[redacted]" if config.api_key not in ("", DEFAULT_API_KEY) else "[none]",
         instructions=str(config.project_instructions_path)
         if config.project_instructions_path
         else None,

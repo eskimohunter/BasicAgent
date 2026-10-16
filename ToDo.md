@@ -16,6 +16,6 @@
 - [x] Bump Python to 3.14
 - [x] Generate gif for docs automatically
 - [x] If an Instructions.md is present in the tool directory then display that after the banner
-- [ ] Tidy up constants spread through agent.py
+- [x] Tidy up constants spread through agent.py
 - [ ] Run opencodereview
 - [ ] Check behavior of toolbar on Windows
