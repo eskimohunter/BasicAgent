@@ -50,6 +50,10 @@ Type "/tools"
 Enter
 Sleep 2.5s
 
+Type "/models"
+Enter
+Sleep 2.5s
+
 Type "/help"
 Enter
 Sleep 3.5s

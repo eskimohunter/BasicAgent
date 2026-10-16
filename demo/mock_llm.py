@@ -21,6 +21,13 @@ from typing import Any
 
 MODEL_NAME = "demo-model"
 CONTEXT_WINDOW = 32768
+# The listing the mock advertises; demo-model stays first so the startup
+# context-window probe picks it up.
+MODELS = [
+    {"id": MODEL_NAME, "object": "model", "n_ctx": CONTEXT_WINDOW},
+    {"id": "demo-coder", "object": "model", "n_ctx": CONTEXT_WINDOW},
+    {"id": "demo-embed", "object": "model"},
+]
 # Seconds between streamed fragments: long enough for the recorder to show the
 # reply building up, short enough to keep the GIFs moving.
 CHUNK_DELAY = 0.03
@@ -126,18 +133,7 @@ class MockHandler(BaseHTTPRequestHandler):
                 {"default_generation_settings": {"n_ctx": CONTEXT_WINDOW}}
             )
         elif path in ("/v1/models", "/models"):
-            self.send_json(
-                {
-                    "object": "list",
-                    "data": [
-                        {
-                            "id": MODEL_NAME,
-                            "object": "model",
-                            "n_ctx": CONTEXT_WINDOW,
-                        }
-                    ],
-                }
-            )
+            self.send_json({"object": "list", "data": MODELS})
         else:
             self.send_error(404)
 

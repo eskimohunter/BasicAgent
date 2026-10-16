@@ -152,11 +152,12 @@ completion menu of workspace files and directories; excluded directories
 | `/clear` | Clear the conversation (keeps the system prompt) |
 | `/mode` | Toggle PLAN/BUILD (same as `Tab`) |
 | `/tools` | List tools available in the current mode |
+| `/models` | List models available at the configured endpoint |
 | `/log` | Show the path of the current audit log |
 | `/exit` | Quit (also `/quit`) |
 
 <p align="center">
-  <img src="media/demo-commands.gif" alt="Listing tools in PLAN and BUILD mode, then /help" width="900">
+  <img src="media/demo-commands.gif" alt="Listing tools and models in PLAN and BUILD mode, then /help" width="900">
 </p>
 
 ### Markdown rendering

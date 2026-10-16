@@ -154,6 +154,8 @@ HR_MAX_WIDTH = 40
 APPROVAL_BOX_WIDTH = 63
 # Caps the completion popup on huge directories.
 MAX_COMPLETIONS = 200
+# /models prints at most this many entries before summarising the rest.
+MODELS_DISPLAY_LIMIT = 50
 BANNER = (
     " _____           _",
     "|  __ \\         / \\",
@@ -498,31 +500,16 @@ def probe_context_window(config: Config) -> tuple[int, str]:
         pass
 
     try:
-        models = get_json(f"{config.base_url}/models")
-        entries = models.get("data") if isinstance(models, dict) else None
-        if isinstance(entries, list) and entries:
-            entry = next(
-                (e for e in entries if isinstance(e, dict) and e.get("id") == config.model),
-                None,
-            )
-            if entry is None:
-                entry = entries[0] if isinstance(entries[0], dict) else {}
-            for key in (
-                "max_model_len",
-                "context_length",
-                "context_window",
-                "max_context_length",
-                "n_ctx",
-            ):
-                value = entry.get(key)
-                if isinstance(value, int) and value > 0:
-                    return value, "models"
-            meta = entry.get("meta")
-            n_ctx = meta.get("n_ctx") if isinstance(meta, dict) else None
-            if isinstance(n_ctx, int) and n_ctx > 0:
-                return n_ctx, "models"
-    except (OSError, ValueError):
-        pass
+        entries = fetch_model_entries(config)
+    except AgentError:
+        return 0, "unknown"
+    if entries:
+        entry = next((e for e in entries if e.get("id") == config.model), None)
+        if entry is None:
+            entry = entries[0]
+        n_ctx = entry_context_window(entry)
+        if n_ctx > 0:
+            return n_ctx, "models"
 
     return 0, "unknown"
 
@@ -1911,6 +1898,13 @@ def chat_completions_url(base_url: str, api_style: str) -> str:
     return f"{base_url}/chat/completions"
 
 
+def models_url(base_url: str, api_style: str) -> str:
+    """Return the models-listing endpoint; Open WebUI mounts it under /api."""
+    if api_style == API_STYLE_OPENWEBUI:
+        return f"{base_url}/api/models"
+    return f"{base_url}/models"
+
+
 def openwebui_signin(base_url: str, email: str, password: str) -> tuple[str, float]:
     """Sign in to Open WebUI; returns (JWT, expiry as a unix timestamp)."""
     request = urllib.request.Request(
@@ -1965,6 +1959,65 @@ def auth_headers(
         token = openwebui_token(base_url, email, password, refresh=refresh)
         return {"Authorization": f"Bearer {token}"}
     return {"Authorization": f"Bearer {api_key}"}
+
+
+# Field names servers use to report a model's context window, in the order
+# they are trusted; llama.cpp nests its value under meta.n_ctx.
+CONTEXT_WINDOW_FIELDS = (
+    "max_model_len",
+    "context_length",
+    "context_window",
+    "max_context_length",
+    "n_ctx",
+)
+
+
+def entry_context_window(entry: dict[str, Any]) -> int:
+    """Return the context window an entry reports, or 0 when it does not."""
+    for key in CONTEXT_WINDOW_FIELDS:
+        value = entry.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    meta = entry.get("meta")
+    n_ctx = meta.get("n_ctx") if isinstance(meta, dict) else None
+    if isinstance(n_ctx, int) and n_ctx > 0:
+        return n_ctx
+    return 0
+
+
+def fetch_model_entries(config: Config) -> list[dict[str, Any]]:
+    """Fetch the endpoint's model listing, raising AgentError on failure.
+
+    Used by the startup context-window probe (best-effort) and the /models
+    command (errors shown to the user).
+    """
+    url = models_url(config.base_url, config.api_style)
+    headers = auth_headers(
+        config.base_url,
+        config.api_style,
+        config.api_key,
+        config.openwebui_email,
+        config.openwebui_password,
+    )
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT) as response:
+            body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:SERVER_ERROR_EXCERPT]
+        raise AgentError(f"HTTP {exc.code} from {url}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise AgentError(f"cannot reach {url}: {exc.reason}") from exc
+    except OSError as exc:
+        raise AgentError(f"request to {url} failed: {exc}") from exc
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise AgentError(f"invalid JSON from {url}") from exc
+    entries = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise AgentError(f"unexpected model list from {url}")
+    return [entry for entry in entries if isinstance(entry, dict)]
 
 
 def stream_chat(app: App, on_delta: Callable[[str], None]) -> StreamResult:
@@ -2425,6 +2478,29 @@ def run_turn(app: App, user_text: str) -> None:
     app.log.log("error", message="step limit reached")
 
 
+def list_models(app: App) -> None:
+    """Print the endpoint's model listing for the /models command."""
+    try:
+        entries = fetch_model_entries(app.config)
+    except AgentError as exc:
+        say(f"cannot list models: {exc}", "class:error")
+        return
+    url = models_url(app.config.base_url, app.config.api_style)
+    if not entries:
+        say(f"no models reported by {url}", "class:warn")
+        return
+    say(f"models at {url} ({len(entries)}):", "class:info")
+    for entry in entries[:MODELS_DISPLAY_LIMIT]:
+        name = str(entry.get("id") or entry.get("name") or "?")
+        marker = "*" if name == app.config.model else " "
+        n_ctx = entry_context_window(entry)
+        suffix = f"  (ctx {n_ctx})" if n_ctx else ""
+        say(f"  {marker} {name}{suffix}")
+    remaining = len(entries) - MODELS_DISPLAY_LIMIT
+    if remaining > 0:
+        say(f"  ... and {remaining} more")
+
+
 def handle_command(app: App, text: str) -> bool:
     """Execute a slash command.
 
@@ -2441,6 +2517,7 @@ def handle_command(app: App, text: str) -> bool:
             "/clear         clear the conversation (keeps the system prompt)",
             "/mode          toggle PLAN/BUILD (same as Tab)",
             "/tools         list tools available in the current mode",
+            "/models        list models available at the endpoint",
             "/log           show the audit log path",
             "/exit          quit",
         ):
@@ -2457,6 +2534,8 @@ def handle_command(app: App, text: str) -> bool:
     elif command == "/tools":
         names = [tool.name for tool in app.tools.values() if app.tool_allowed(tool)]
         say(f"tools available in {app.mode.value} mode: {', '.join(names)}", "class:info")
+    elif command == "/models":
+        list_models(app)
     elif command == "/log":
         say(
             f"audit log: {app.log.path}" if app.log.path else "audit logging disabled",
