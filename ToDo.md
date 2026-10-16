@@ -9,7 +9,7 @@
 - [x] Read Agents.md
 - [x] BA.png to README
 - [x] Review System Prompt
-- [ ] Review Summary prompt
+- [x] Review Summary prompt
 - [x] Logs in application directory not project
 - [x] Refused to read ‘binary file’ .xml
 - [x] Display context usage in the toolbar
