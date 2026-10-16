@@ -1,0 +1,6 @@
+{
+  "exclude": [
+    "**/.opencode/plugins/**",
+    "**/flake.lock"
+  ]
+}
