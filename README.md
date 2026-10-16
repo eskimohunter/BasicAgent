@@ -323,6 +323,14 @@ Dependabot (`.github/dependabot.yml`) checks weekly for updates to:
 Dependabot *security* updates and alerts for pip/GitHub Actions are enabled in
 repository settings (Settings → Code security), not in this file.
 
+Dependabot PRs are auto-approved and auto-merged by
+`.github/workflows/dependabot-automerge.yml` once CI passes
+(`.github/workflows/ci.yml`: pip smoke test plus lint and smoke test inside the
+Nix dev shell). This applies to every update, including major version bumps;
+`master` must require the `check` status check for the gate to be effective.
+Auto-merge must be enabled once in repository settings (Settings → General →
+Pull requests → Allow auto-merge).
+
 ## Releasing (Windows)
 
 The `Release (Windows)` workflow
@@ -379,6 +387,8 @@ demo/workspace/                 fixture project used while recording the GIFs
 demo/tape/*.tape                VHS tapes that render the media GIFs
 demo/generate.sh                renders every tape inside `nix develop .#demo`
 .github/dependabot.yml          dependency update configuration
+.github/workflows/ci.yml        lint and smoke tests (required for merging)
+.github/workflows/dependabot-automerge.yml  approves and auto-merges Dependabot PRs
 .github/workflows/release.yml   Windows release pipeline
 .github/workflows/gifs.yml      regenerates and commits the demo GIFs
 ```

@@ -1,0 +1,31 @@
+name: Dependabot auto-merge
+
+# Dependabot PRs get a read-only GITHUB_TOKEN under `pull_request` because
+# GitHub treats them like fork PRs, so the write operations run on
+# `pull_request_target`. Nothing is checked out and no PR code is executed
+# here; the steps only talk to the GitHub API.
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot:
+    name: dependabot
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'eskimohunter/BasicAgent'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approve the PR
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}
+
+      # Waits for the required CI checks before merging; squash keeps master
+      # linear and the Dependabot branch is removed on merge.
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash --delete-branch "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ github.token }}

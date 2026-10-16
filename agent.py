@@ -1608,7 +1608,7 @@ def build_system_prompt(config: Config, mode: Mode) -> str:
     The mode paragraph is rewritten on every toggle (see App.toggle_mode), so
     the model always sees rules matching the tools it actually has.
     """
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = time.strftime("%Y-%m-%d")
     base = (
         f"You are {APP_NAME}, a coding agent running in the user's terminal.\n"
         f"Workspace root: {config.workspace} (all file paths are confined to it)\n"
