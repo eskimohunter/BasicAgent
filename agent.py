@@ -61,7 +61,7 @@ except ImportError:
 
 # Identity and paths.
 APP_NAME = "BA"
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 INSTRUCTIONS_FILE = APP_DIR / "Instructions.md"
