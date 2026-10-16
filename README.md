@@ -17,6 +17,10 @@ you> explain the build setup
 BA [plan]> This project uses a Nix flake...
 ```
 
+<p align="center">
+  <img src="media/demo-plan.gif" alt="BA answering a question in PLAN mode" width="900">
+</p>
+
 ## Features
 
 - **Single file** — `agent.py` is the whole agent; stdlib HTTP/SSE plus
@@ -66,6 +70,19 @@ python agent.py --base-url http://192.168.1.10:8080/v1 --model qwen2.5-coder
 
 The dev shell provides Python with `prompt-toolkit`, `pygments` and `ruff`. No
 venv or `pip` is required. `flake.lock` pins nixpkgs for reproducibility.
+
+### Demo GIFs
+
+The README GIFs are recorded with [VHS](https://github.com/charmbracelet/vhs)
+against a scripted mock model (`demo/mock_llm.py`), so they are reproducible
+without a live server. Regenerate them all with:
+
+```sh
+nix develop .#demo -c demo/generate.sh
+```
+
+The `Generate GIFs` workflow does the same whenever a push touches `demo/` and
+commits the refreshed GIFs back to `media/`.
 
 ### Windows
 
@@ -138,6 +155,10 @@ completion menu of workspace files and directories; excluded directories
 | `/log` | Show the path of the current audit log |
 | `/exit` | Quit (also `/quit`) |
 
+<p align="center">
+  <img src="media/demo-commands.gif" alt="Listing tools in PLAN and BUILD mode, then /help" width="900">
+</p>
+
 ### Markdown rendering
 
 Assistant replies are rendered as they stream: headings, bold/italic/strikethrough,
@@ -186,6 +207,10 @@ approvals.
 
 The command is executed exactly as shown, via the system shell, in the workspace
 directory. There is no hidden wrapping or rewriting.
+
+<p align="center">
+  <img src="media/demo-approval.gif" alt="Editing a file and approving a test run in BUILD mode" width="900">
+</p>
 
 ## Tools
 
@@ -282,6 +307,10 @@ regardless of the terminal's working directory. One JSON object per line:
 - Tool output sent to the model is truncated to protect the context window; the
   truncation marker is explicit.
 
+<p align="center">
+  <img src="media/demo-boundary.gif" alt="BA refusing to read a path outside the workspace" width="900">
+</p>
+
 ## Dependency updates
 
 Dependabot (`.github/dependabot.yml`) checks weekly for updates to:
@@ -345,6 +374,11 @@ flake.lock                      pinned nixpkgs
 requirements.txt                runtime dependencies for pip (Windows / non-Nix)
 .env.example                    template for the optional .env file
 ARCHITECTURE.md                 internal design and data flow
+demo/mock_llm.py                scripted OpenAI-compatible server for the demo tapes
+demo/workspace/                 fixture project used while recording the GIFs
+demo/tape/*.tape                VHS tapes that render the media GIFs
+demo/generate.sh                renders every tape inside `nix develop .#demo`
 .github/dependabot.yml          dependency update configuration
 .github/workflows/release.yml   Windows release pipeline
+.github/workflows/gifs.yml      regenerates and commits the demo GIFs
 ```

@@ -1,0 +1,36 @@
+name: Generate GIFs
+
+on:
+  push:
+    paths:
+      - "demo/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gifs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gifs:
+    name: Render demo GIFs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Render demo GIFs
+        run: nix develop .#demo -c bash demo/generate.sh
+
+      - name: Commit updated GIFs
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: Update generated demo GIFs
+          file_pattern: "media/*.gif"

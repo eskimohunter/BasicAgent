@@ -50,6 +50,16 @@
             (mkOcr pkgs)
           ];
         };
+        # Renders the README demo GIFs; vhs pulls in Chromium, so it stays
+        # out of the default shell.
+        demo = pkgs.mkShell {
+          packages = [
+            (pkgs.python3.withPackages (ps: [ ps.prompt-toolkit ps.pygments ]))
+            pkgs.vhs
+            # VHS renders text with JetBrains Mono when fontconfig provides it.
+            pkgs.jetbrains-mono
+          ];
+        };
       });
     };
 }
