@@ -1,21 +1,13 @@
 # BasicAgent (BA)
 
 <p align="center">
-  <img src="media/BA.png" alt="BA" width="600">
+  <img src="media/BA.png" alt="BA" width="30%">
 </p>
 
 A basic LLM coding agent built for **understandability and auditability**. It is a
 single Python file (`agent.py`) that provides a cross-platform terminal UI, talks to
 any **OpenAI-compatible API on your LAN**, and requires **explicit user approval for
 every shell command** it wants to run.
-
-```
-+-------------------------------------------------------------+
-| PLAN | qwen2.5-coder  /home/you/project  Tab:mode  /help     |
-+-------------------------------------------------------------+
-you> explain the build setup
-BA [plan]> This project uses a Nix flake...
-```
 
 <p align="center">
   <img src="media/demo-plan.gif" alt="BA answering a question in PLAN mode" width="900">

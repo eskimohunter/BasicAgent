@@ -14,12 +14,6 @@ Set TypingSpeed 35ms
 Set CursorBlink false
 Set Framerate 24
 
-# Keep the shell prompt identical on every machine (a local ~/.bashrc may
-# define PS1 with readline markers that ttyd renders literally).
-Hide
-Type "unset PROMPT_COMMAND; export PS1='$ ' PS2='> '"
-Enter
-
 Hide
 Type "kill $(cat /tmp/ba-mock.pid) 2>/dev/null; rm -rf /tmp/ba-demo /tmp/demo-project /tmp/ba-mock.pid"
 Enter
@@ -28,16 +22,14 @@ Enter
 Type "mkdir -p /tmp/ba-demo && cp agent.py /tmp/ba-demo/agent.py && cp -r demo/workspace /tmp/demo-project && cd /tmp/ba-demo"
 Enter
 Sleep 500ms
-# Hide only pauses capture; clear the setup scrollback before it resumes.
-Type "clear"
-Enter
-Sleep 300ms
-Show
-
-Sleep 700ms
+# Launch BA hidden: agent.py clears the screen at startup, so the recording
+# opens on the banner and prompt with nothing else above it.
 Type "python agent.py --model demo-model --workspace /tmp/demo-project"
 Enter
 Sleep 2s
+Show
+
+Sleep 1s
 
 Type "Read /etc/hostname and tell me what it says."
 Sleep 400ms
