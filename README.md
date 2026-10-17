@@ -1,7 +1,7 @@
 # BasicAgent (BA)
 
 <p align="center">
-  <img src="media/BA.png" alt="BA" width="30%">
+  <img src="media/BA.png" alt="BA" width="50%">
 </p>
 
 A basic LLM coding agent built for **understandability and auditability**. It is a
