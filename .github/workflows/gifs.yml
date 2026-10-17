@@ -2,12 +2,14 @@ name: Generate GIFs
 
 on:
   push:
+    branches:
+      - master
     paths:
       - "demo/**"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: gifs-${{ github.ref }}
@@ -20,8 +22,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          lfs: true
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -29,8 +29,9 @@ jobs:
       - name: Render demo GIFs
         run: nix develop .#demo -c bash demo/generate.sh
 
-      - name: Commit updated GIFs
-        uses: stefanzweifel/git-auto-commit-action@v7
+      - name: Upload rendered GIFs
+        uses: actions/upload-artifact@v7
         with:
-          commit_message: Update generated demo GIFs
-          file_pattern: "media/*.gif"
+          name: demo-gifs
+          path: media/demo-*.gif
+          if-no-files-found: error

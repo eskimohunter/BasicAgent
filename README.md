@@ -73,8 +73,10 @@ without a live server. Regenerate them all with:
 nix develop .#demo -c demo/generate.sh
 ```
 
-The `Generate GIFs` workflow does the same whenever a push touches `demo/` and
-commits the refreshed GIFs back to `media/`.
+The `Generate GIFs` workflow runs the same command when a push to `master`
+touches `demo/`, and uploads the rendered GIFs as the `demo-gifs` artifact.
+Download it from the workflow run and copy the files into `media/` to update
+the README.
 
 ### Windows
 
@@ -383,5 +385,5 @@ demo/generate.sh                renders every tape inside `nix develop .#demo`
 .github/workflows/ci.yml        lint and smoke tests (required for merging)
 .github/workflows/dependabot-automerge.yml  approves and auto-merges Dependabot PRs
 .github/workflows/release.yml   Windows release pipeline
-.github/workflows/gifs.yml      regenerates and commits the demo GIFs
+.github/workflows/gifs.yml      renders the demo GIFs and uploads them as artifacts
 ```
