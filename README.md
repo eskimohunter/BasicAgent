@@ -197,8 +197,8 @@ and working directory:
   the model.
 - `Ctrl+C` / `Ctrl+D` — quit BA.
 
-Every command is approved individually; the prompt does not remember earlier
-approvals.
+**Every command is approved individually; the prompt does not remember earlier
+approvals.**
 
 The command is executed exactly as shown, via the system shell, in the workspace
 directory. There is no hidden wrapping or rewriting.
@@ -221,7 +221,7 @@ directory. There is no hidden wrapping or rewriting.
 
 Tool results are capped at 64 KB sent to the model and previewed at 2 KB in the
 terminal; the full (capped) result is stored in the audit log. File tools are
-confined to the workspace.
+confined to the workspace (see [Workspace confinement](#workspace-confinement)).
 
 ## Configuration
 
@@ -298,9 +298,34 @@ regardless of the terminal's working directory. One JSON object per line:
 - Shell commands are displayed verbatim before execution and never rewritten.
 - The command allowlist (config-file support planned) is exact-match only; until
   then every command is approved individually.
-- File tools are confined to the workspace.
 - Tool output sent to the model is truncated to protect the context window; the
   truncation marker is explicit.
+
+### Workspace confinement
+
+Every model-supplied path used by the file tools (`read_file`, `list_dir`,
+`grep`, `write_file`, `edit_file`) goes through `resolve_path`, which resolves
+the path *before* checking containment. That blocks `..` traversal, absolute
+paths, and symlinks pointing outside the workspace (abridged from `agent.py`):
+
+```python
+def resolve_path(config: Config, raw: str) -> Path:
+    """Resolve a model-supplied path and confine it to the workspace."""
+    if not raw:
+        raise ToolError("path is required")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = config.workspace / path
+    path = path.resolve()
+    try:
+        path.relative_to(config.workspace)
+    except ValueError as exc:
+        raise ToolError(f"path is outside the workspace ({config.workspace})") from exc
+    return path
+```
+
+`run_command` is intentionally not path-confined once approved; the approval
+gate (see [Approval](#approval)) is the safeguard there.
 
 <p align="center">
   <img src="media/demo-boundary.gif" alt="BA refusing to read a path outside the workspace" width="900">
