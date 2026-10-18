@@ -1,4 +1,4 @@
-# Modes and slash commands: /tools, Tab, /tools in BUILD, /help.
+# Modes and slash commands: /tools, Tab, /tools in BUILD, /init, /help.
 Output media/demo-commands.gif
 
 # Settings are inlined per tape: VHS drops Output commands from sourced
@@ -17,9 +17,9 @@ Set Framerate 24
 Hide
 Type "kill $(cat /tmp/ba-mock.pid) 2>/dev/null; rm -rf /tmp/ba-demo /tmp/demo-project /tmp/ba-mock.pid"
 Enter
-Type "python demo/mock_llm.py --scenario plan --port 8899 > /tmp/ba-mock.log 2>&1 & echo $! > /tmp/ba-mock.pid"
+Type "python demo/mock_llm.py --scenario init --port 8899 > /tmp/ba-mock.log 2>&1 & echo $! > /tmp/ba-mock.pid"
 Enter
-Type "mkdir -p /tmp/ba-demo && cp agent.py /tmp/ba-demo/agent.py && cp -r demo/workspace /tmp/demo-project && cd /tmp/ba-demo"
+Type "mkdir -p /tmp/ba-demo && cp agent.py /tmp/ba-demo/agent.py && cp -r config /tmp/ba-demo/ && cp -r demo/workspace /tmp/demo-project && cd /tmp/ba-demo"
 Enter
 Sleep 500ms
 # Launch BA hidden: agent.py clears the screen at startup, so the recording
@@ -41,6 +41,10 @@ Sleep 1s
 Type "/tools"
 Enter
 Sleep 2.5s
+
+Type "/init"
+Enter
+Sleep 5s
 
 Type "/models"
 Enter

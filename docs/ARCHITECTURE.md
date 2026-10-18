@@ -88,10 +88,11 @@ class App:
 server each request. The system prompt at `messages[0]` is rebuilt whenever the
 mode changes (`App.toggle_mode`, `agent.py:945`), so mode instructions always
 reflect the current mode. `/clear` resets `messages` to just the system prompt.
-The prompt also embeds workspace project instructions (`Agents.md`, loaded once
-at startup; see §4).
+The prompt also embeds workspace project instructions (`Agents.md`, loaded at
+startup and reloaded after `/init`; see §4).
 
-Configuration is immutable after startup. Precedence is CLI > environment >
+Endpoint and workspace configuration is immutable after startup, though `/init`
+may reload the project instructions. Precedence is CLI > environment >
 `.env` in the current directory > `.env` next to `agent.py` > default, resolved
 entirely in `parse_args` (`agent.py:97`). `load_dotenv` (`agent.py:173`) fills
 `os.environ` from those files without overriding existing variables, so
@@ -450,6 +451,8 @@ failures are always returned to the model as text**, never raised.
 `stream_write`, or `build_toolbar`.
 
 **Adding a slash command** is a branch in `handle_command` (`agent.py:892`).
+`/init` is the exception that runs a full turn: it switches to BUILD, feeds
+`config/prompts/init.md` through `run_turn`, then reloads `Agents.md`.
 
 ## 13. Testing strategy
 

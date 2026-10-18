@@ -64,6 +64,10 @@ APP_NAME = "BA"
 VERSION = "0.9.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
+# App-owned prompt text lives in config/prompts so it can be edited without code.
+CONFIG_DIR = APP_DIR / "config"
+PROMPTS_DIR = CONFIG_DIR / "prompts"
+INIT_PROMPT_FILE = PROMPTS_DIR / "init.md"
 INSTRUCTIONS_FILE = APP_DIR / "Instructions.md"
 # Instructions.md larger than this is cut before it reaches the system prompt.
 INSTRUCTIONS_MAX_BYTES = 32_000
@@ -2508,8 +2512,44 @@ def list_models(app: App) -> None:
         say(f"  ... and {remaining} more")
 
 
+def load_init_prompt() -> str | None:
+    """Load the /init instruction prompt from the app config directory.
+
+    Returns:
+        The prompt text, or None after reporting an error to the user.
+    """
+    try:
+        text = INIT_PROMPT_FILE.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        say(f"error: cannot read {INIT_PROMPT_FILE}: {exc}", "class:error")
+        return None
+    if not text.strip():
+        say(f"error: {INIT_PROMPT_FILE} is empty", "class:error")
+        return None
+    return text
+
+
+def reload_project_instructions(app: App) -> None:
+    """Reload Agents.md after /init and rebuild the system prompt if it changed."""
+    before = (app.config.project_instructions_path, app.config.project_instructions)
+    load_project_instructions(app.config)
+    after = (app.config.project_instructions_path, app.config.project_instructions)
+    if after == before:
+        return
+    app.messages[0] = {
+        "role": "system",
+        "content": build_system_prompt(app.config, app.mode),
+    }
+    app.exact_context = 0
+    app.exact_context_at = -1
+
+
 def handle_command(app: App, text: str) -> bool:
     """Execute a slash command.
+
+    Slash commands run synchronously. /init switches to BUILD, feeds the prompt
+    in config/prompts/init.md through the normal turn loop, then reloads the
+    workspace instructions so the system prompt matches the updated file.
 
     Returns:
         True only for /exit and /quit, telling the main loop to break.
@@ -2521,6 +2561,7 @@ def handle_command(app: App, text: str) -> bool:
         say("commands:", "class:info")
         for line in (
             "/help          show this help",
+            "/init          create or update AGENTS.md",
             "/clear         clear the conversation (keeps the system prompt)",
             "/mode          toggle PLAN/BUILD (same as Tab)",
             "/tools         list tools available in the current mode",
@@ -2536,6 +2577,16 @@ def handle_command(app: App, text: str) -> bool:
         app.exact_context = 0
         app.exact_context_at = -1
         say("conversation cleared", "class:info")
+    elif command == "/init":
+        prompt = load_init_prompt()
+        if prompt is None:
+            return False
+        if app.mode is Mode.PLAN:
+            app.toggle_mode()
+        try:
+            run_turn(app, prompt)
+        finally:
+            reload_project_instructions(app)
     elif command == "/mode":
         app.toggle_mode()
     elif command == "/tools":
@@ -2833,11 +2884,11 @@ def main(argv: list[str] | None = None) -> int:
             text = text.strip()
             if not text:
                 continue
-            if text.startswith("/"):
-                if handle_command(app, text):
-                    break
-                continue
             try:
+                if text.startswith("/"):
+                    if handle_command(app, text):
+                        break
+                    continue
                 run_turn(app, text)
             except (KeyboardInterrupt, QuitApp):
                 break

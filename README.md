@@ -38,7 +38,8 @@ every shell command** it wants to run.
 - **Small tool surface** — `read_file`, `list_dir`, `grep`, `fetch_url`,
   `write_file`, `edit_file`, `run_command`.
 - **Project instructions** — an `Agents.md` in the workspace root (any
-  capitalization) is loaded into the system prompt at startup.
+  capitalization) is loaded into the system prompt at startup. `/init` creates
+  or updates it from a bundled prompt and reloads it.
 - **Startup instructions** — an `Instructions.md` next to `agent.py` is rendered
   as markdown right after the banner, if present.
 
@@ -143,6 +144,7 @@ completion menu of workspace files and directories; excluded directories
 | Command | Description |
 | --- | --- |
 | `/help` | Show available commands |
+| `/init` | Create or update `AGENTS.md` from `config/prompts/init.md` (switches to BUILD) |
 | `/clear` | Clear the conversation (keeps the system prompt) |
 | `/mode` | Toggle PLAN/BUILD (same as `Tab`) |
 | `/tools` | List tools available in the current mode |
@@ -151,7 +153,7 @@ completion menu of workspace files and directories; excluded directories
 | `/exit` | Quit (also `/quit`) |
 
 <p align="center">
-  <img src="media/demo-commands.gif" alt="Listing tools and models in PLAN and BUILD mode, then /help" width="900">
+  <img src="media/demo-commands.gif" alt="Toggling PLAN/BUILD, listing tools, running /init to create AGENTS.md, then /models and /help" width="900">
 </p>
 
 ### Markdown rendering
@@ -395,13 +397,15 @@ The bundled interpreter is pinned in the workflow's `env` (`PBS_RELEASE`,
 
 ```
 agent.py                        the entire agent
+config/prompts/init.md          prompt used by /init to create or update AGENTS.md
 ba.cmd                          Windows launcher for prebuilt bundles
 .gitattributes                  ensures .cmd files use CRLF on checkout
 flake.nix                       nix develop environment (Python + prompt-toolkit + ruff)
 flake.lock                      pinned nixpkgs
 requirements.txt                runtime dependencies for pip (Windows / non-Nix)
 .env.example                    template for the optional .env file
-ARCHITECTURE.md                 internal design and data flow
+docs/ARCHITECTURE.md            internal design and data flow
+docs/ToDo.md                    pending work
 demo/mock_llm.py                scripted OpenAI-compatible server for the demo tapes
 demo/workspace/                 fixture project used while recording the GIFs
 demo/tape/*.tape                VHS tapes that render the media GIFs

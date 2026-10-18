@@ -5,10 +5,10 @@
 - `agent.py` (~2.9k lines) is the entire product: a single-file, auditable LLM
   coding agent (stdlib + prompt_toolkit TUI, OpenAI-compatible backend).
   Keeping it one file is a stated design goal — do not split it into modules.
-- `ARCHITECTURE.md` is the design doc, but its `agent.py:NNN` line references
-  are stale; navigate by the section banners in the file instead.
+- `docs/ARCHITECTURE.md` is the design doc, but its `agent.py:NNN` line
+  references are stale; navigate by the section banners in the file instead.
 - Python 3.10+; the dev shell uses 3.14 and the Windows bundle 3.14.8.
-- `ToDo.md` tracks pending work; check it before picking up tasks.
+- `docs/ToDo.md` tracks pending work; check it before picking up tasks.
 
 ## Commands
 
@@ -53,8 +53,11 @@
   `agent.py`. Audit logs go to `<app dir>/logs/` (gitignored), never the
   workspace.
 - BA loads a workspace-root `Agents.md` (any capitalization, including this
-  file) into its system prompt, and renders `Instructions.md` from the app dir
-  at startup (gitignored).
+  file) into its system prompt at startup and reloads it after `/init`; `/init`
+  reads `config/prompts/init.md` and switches PLAN to BUILD first.
+- The `/init` prompt lives in `config/prompts/init.md`, not in `agent.py`
+  constants; new prompt files must also be packaged by `release.yml`.
+- BA renders `Instructions.md` from the app dir at startup (gitignored).
 - The README documents exact tool behavior, slash commands and UI text; keep it
   in sync when behavior changes.
 

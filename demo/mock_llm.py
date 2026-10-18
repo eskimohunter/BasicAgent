@@ -60,10 +60,29 @@ Ask me for a file inside the workspace instead; reading anything else would
 need a shell command, which you would approve first.
 """
 
+INIT_FILE = """# AGENTS.md
+
+- Fixture project for BA demo recordings; do not add dependencies.
+- Run `python -m unittest -q` to verify changes.
+"""
+
+INIT_ANSWER = """Created `AGENTS.md` with the fixture layout, test command and
+dependency rule.
+"""
+
 SCENARIOS: dict[str, dict[str, Any]] = {
     "plan": {
         "tool_calls": [{"name": "read_file", "arguments": {"path": "greeter.py"}}],
         "answer": PLAN_ANSWER,
+    },
+    "init": {
+        "tool_calls": [
+            {
+                "name": "write_file",
+                "arguments": {"path": "AGENTS.md", "content": INIT_FILE},
+            }
+        ],
+        "answer": INIT_ANSWER,
     },
     "build": {
         "tool_calls": [

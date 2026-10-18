@@ -76,6 +76,8 @@ jobs:
       - name: Assemble package
         run: |
           Copy-Item agent.py, README.md, ba.cmd pkg\
+          New-Item -ItemType Directory -Path pkg\config\prompts -Force | Out-Null
+          Copy-Item config\prompts\init.md pkg\config\prompts\init.md
 
       - name: Smoke test bundled agent
         run: |
@@ -108,7 +110,7 @@ jobs:
           "ZIP=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $archive = [System.IO.Compression.ZipFile]::OpenRead((Get-Item $zip).FullName)
           try { $entries = $archive.Entries.FullName -replace '\\', '/' } finally { $archive.Dispose() }
-          foreach ($required in @('agent.py', 'ba.cmd', 'README.md', 'python/python.exe')) {
+          foreach ($required in @('agent.py', 'ba.cmd', 'README.md', 'config/prompts/init.md', 'python/python.exe')) {
             if ($entries -notcontains $required) { throw "zip is missing $required" }
           }
           Get-Item $zip | Select-Object Name, Length

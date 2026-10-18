@@ -33,6 +33,7 @@ jobs:
         run: |
           python agent.py --version
           python agent.py --help > /dev/null
+          python -c "from pathlib import Path; assert Path('config/prompts/init.md').is_file()"
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31

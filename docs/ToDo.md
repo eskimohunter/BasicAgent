@@ -19,3 +19,4 @@
 - [x] Tidy up constants spread through agent.py
 - [ ] Run opencodereview
 - [ ] Check behavior of toolbar on Windows
+- [ ] Implement agents skills
