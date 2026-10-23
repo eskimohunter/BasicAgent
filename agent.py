@@ -61,7 +61,7 @@ except ImportError:
 
 # Identity and paths.
 APP_NAME = "BA"
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = APP_DIR / "logs"
 # App-owned prompt text lives in config/prompts so it can be edited without code.
